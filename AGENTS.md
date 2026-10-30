@@ -30,17 +30,27 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm verify
-pnpm pack --dry-run
+pnpm package:check
+pnpm release:pack
 ```
 
-- `pnpm verify` 顺序为 typecheck → build → tests；client loader smoke test 依赖先构建出的 [`lib/client.js`](<lib/client.js>)。
-- `pnpm verify` runs typecheck → build → tests; the client-loader smoke test requires the preceding build output [`lib/client.js`](<lib/client.js>).
-- 测试是隔离单测与 loader smoke test，不代表真实 DSH Web GUI 已验证。`lib/` 是生成产物并被 [`.gitignore`](<.gitignore>) 忽略；包交付清单在 [`package.json`](<package.json>) 的 `files` 字段。
-- Tests are isolated unit tests plus a loader smoke test, not live DSH GUI validation. `lib/` is generated and ignored by [`.gitignore`](<.gitignore>); [`package.json`](<package.json>)'s `files` field controls package contents.
+- `pnpm verify` 顺序为 typecheck → build → tests → `package:check`；包检查依赖先构建出的 [`lib/client.js`](<lib/client.js>)。[`scripts/check-package.mjs`](<scripts/check-package.mjs>) 会实际打包、解包并核对入口、LICENSE/README 与禁止泄漏的文件。
+- `pnpm verify` runs typecheck → build → tests → `package:check`; package inspection requires the preceding build output [`lib/client.js`](<lib/client.js>). [`scripts/check-package.mjs`](<scripts/check-package.mjs>) creates and extracts a real tarball, then checks entry points, LICENSE/README, and forbidden files.
+- [`package.json`](<package.json>) 中的 `release:pack` script 调用 [`scripts/create-release-package.mjs`](<scripts/create-release-package.mjs>)，在忽略的 `.release/` 下创建一个 `.tgz` 和匹配的 `.sha256`，并本地验证摘要/文件名；Release CI 在创建 draft 前还会运行 `sha256sum -c`。
+- The `release:pack` script in [`package.json`](<package.json>) calls [`scripts/create-release-package.mjs`](<scripts/create-release-package.mjs>) to create one `.tgz` and matching `.sha256` under ignored `.release/`, then verifies digest/basename locally. Release CI also runs `sha256sum -c` before creating a draft.
+- 自动化测试和 tarball 检查不代表真实 DSH Web GUI 已验证。`lib/` 是生成产物并被 [`.gitignore`](<.gitignore>) 忽略；[`package.json`](<package.json>) 的 `files` 控制 tarball 内容，勿把 maintainer scripts 或 [`AGENTS.md`](<AGENTS.md>) 打进包。
+- Automated tests and tarball inspection are not live DSH GUI validation. `lib/` is generated and ignored by [`.gitignore`](<.gitignore>); [`package.json`](<package.json>)'s `files` controls the tarball, and maintainer scripts / [`AGENTS.md`](<AGENTS.md>) must stay out.
 - 依赖变更后用 pnpm 更新 [`pnpm-lock.yaml`](<pnpm-lock.yaml>)，并保留 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 中 RC5 依赖所需的精确 release-age 排除项；不要用通配方式关闭供应链策略。
 - After dependency changes, update [`pnpm-lock.yaml`](<pnpm-lock.yaml>) with pnpm and preserve the exact release-age exclusions for RC5 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>); do not disable supply-chain policy with broad patterns.
 
-## 发布边界 / Release boundary
+## 公开仓库与发布 / Public repository and releases
 
-- 插件包当前标记为 `private`。GitHub 仓库、许可证、CI、Release 工作流和校验和属于可选后续阶段；未经明确要求，不将其设为首版完成条件。
-- The package is currently `private`. A GitHub repository, license, CI, release workflow, and checksums are optional follow-up work, not first-version completion criteria unless explicitly requested.
+- 公开 GitHub 仓库准备属于本项目范围；[`LICENSE`](<LICENSE>) 使用 MIT，CI 与 tag-driven draft Release 配置在 [`.github/workflows/ci.yml`](<.github/workflows/ci.yml>) 和 [`.github/workflows/release.yml`](<.github/workflows/release.yml>)。
+- Public GitHub repository preparation is in scope. [`LICENSE`](<LICENSE>) uses MIT; CI and tag-driven draft releases live in [`.github/workflows/ci.yml`](<.github/workflows/ci.yml>) and [`.github/workflows/release.yml`](<.github/workflows/release.yml>).
+- [`package.json`](<package.json>) 的 `private: true` 只禁止 npm 发布，是明确选择；不要移除或添加 npm publish 步骤。它不限制 GitHub 仓库可公开，也不限制 GitHub Release tarball。
+- `private: true` in [`package.json`](<package.json>) intentionally disables npm publishing. Do not remove it or add npm publish steps; it does not make the GitHub repository private or prevent Release tarballs.
+- CI 与 Release 使用 Node 24、pnpm 12.16.1；保持 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 对 RC5 依赖的精确 minimum-release-age exclusions。
+- CI and Release use Node 24 and pnpm 12.16.1; preserve the exact RC5 minimum-release-age exclusions in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>).
+- Release 仅由与 [`package.json`](<package.json>) 版本相符的 `v<version>` tag 触发；从 tag 指向的精确 commit 打包，校验摘要，并只创建 draft。发布 draft、配置 remote、推送分支或 tag 都需要单独明确授权。
+- Release triggers only on a `v<version>` tag matching [`package.json`](<package.json>), packages that exact tagged commit, verifies the checksum and rechecks the remote tag SHA, then creates a draft only. Publishing the draft, configuring a remote, or pushing a branch/tag requires separate explicit authorization.
+- Configure a GitHub ruleset for `v*` tags to prohibit force updates/deletion once the remote exists; workflow checks cannot eliminate the small race after remote SHA verification.

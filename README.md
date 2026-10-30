@@ -32,9 +32,15 @@ A custom model is selected through DSH RC5's public `sessionController.selectMod
 
 The first version targets the DSH `0.2.1-rc.5` Host, Typert, Compaction, and Web client APIs. Peer versions are pinned in [`package.json`](package.json); other Host versions have not been verified.
 
-此目录当前是私有、未发布的插件项目；尚未配置公共仓库、许可证或发布/CI/checksum 工作流。公开发布是后续可选阶段，不属于首版交付要求。
+## GitHub 发布准备 | GitHub release preparation
 
-This is currently a private, unpublished plugin project. A public repository, license, and release/CI/checksum workflows have not been prepared. Public release is an optional follow-up, not a first-version requirement.
+本地仓库包含公开 GitHub 发布准备：采用 [MIT 许可证](<LICENSE>)，CI 在 push/PR 上运行 `pnpm verify` 并检查可交付 tarball；tag 驱动的 [Release workflow](<.github/workflows/release.yml>) 会从精确 tag commit 构建 `.tgz` 与 `.sha256`，校验 tag/版本与 checksum 后创建 GitHub draft Release，由维护者人工发布。相关 [CI workflow](<.github/workflows/ci.yml>) 不需要写权限。创建 GitHub 仓库后，还应配置规则保护 `v*` tags，禁止强制更新或删除。
+
+The local repository includes public-GitHub preparation: it uses the [MIT license](<LICENSE>), CI runs `pnpm verify` on pushes and pull requests, and checks the installable tarball. The tag-driven [Release workflow](<.github/workflows/release.yml>) builds a `.tgz` and `.sha256` from the exact tag commit, checks the tag/version and checksum, then creates a draft GitHub Release for a maintainer to publish manually. The [CI workflow](<.github/workflows/ci.yml>) requires no write permission. Once the GitHub repository exists, configure a ruleset protecting `v*` tags from force-updates and deletion.
+
+[`package.json`](<package.json>) 保留 `private: true`，这是为了禁止 npm 发布；它不妨碍公开 GitHub 仓库或 GitHub Release tarball。配置的分发渠道是 GitHub Release，不会自动发布到 npm。Release workflow 仅在推送与 [`package.json`](<package.json>) 版本相符的 `v<version>` tag 后触发。
+
+[`package.json`](<package.json>) keeps `private: true` to prevent npm publishing; that does not prevent a public GitHub repository or GitHub Release tarball. GitHub Releases are the configured distribution channel; the package is not published to npm. The Release workflow runs only after pushing a `v<version>` tag matching [`package.json`](<package.json>).
 
 ## 本地开发与验证 | Local development and verification
 
@@ -44,12 +50,13 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm verify
-pnpm pack --dry-run
+pnpm package:check
+pnpm release:pack
 ```
 
-`pnpm verify` 依次运行类型检查、Host/client 构建和测试。测试包含审批门、压缩范围与 client loader smoke test；loader smoke test 不等于在真实 DSH Web GUI 中验证界面。
+`pnpm verify` 运行类型检查、Host/client 构建、测试和 tarball 文件清单检查。`pnpm package:check` 单独复查 package 文件集；`pnpm release:pack` 会生成 `.release/` 下的 `.tgz` 和 `.sha256`，并在本地核对文件名与摘要。
 
-`pnpm verify` runs type checks, the Host/client build, and tests. Tests cover the approval gate, compaction range, and client-loader smoke test. The loader smoke test is not a validation in a live DSH Web GUI.
+`pnpm verify` runs type checks, the Host/client build, tests, and a tarball file-list check. `pnpm package:check` checks the package file set separately; `pnpm release:pack` writes a `.tgz` and `.sha256` under `.release/` and verifies the checksum and basename locally. Tests include a loader smoke test, not a live DSH Web GUI validation.
 
 初次验证使用 Node `v24.22.2` / pnpm `12.16.1`；插件未安装到用户 DSH profile，也未在真实 Web GUI 中验证。
 
