@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,6 +10,14 @@ const outDir = resolve(root, process.argv[2] ?? '.release')
 const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const filename = `${manifest.name}-${manifest.version}.tgz`
 const checksumFilename = `${filename}.sha256`
+
+for (const entry of ['lib/index.js', 'lib/client.js', 'lib/protocol.js', 'lib/range.js', 'lib/typert.js']) {
+  try {
+    await access(join(root, entry))
+  } catch {
+    throw new Error(`release:pack requires a build; missing ${entry}. Run pnpm build first.`)
+  }
+}
 
 await mkdir(outDir, { recursive: true })
 for (const name of await readdir(outDir)) {

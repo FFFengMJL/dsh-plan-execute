@@ -2,6 +2,7 @@ import { defineConfig } from 'tsdown'
 
 const externals = [
   'react',
+  'react-dom',
   'react/jsx-runtime',
   '@deepseek-ai/cordis',
   '@deepseek-ai/dsh-client-ui-slots',

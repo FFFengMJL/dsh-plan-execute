@@ -106,8 +106,15 @@ function approved(answer: AskUserQuestionAnswer, review: ActiveReview): boolean 
     && item.custom === undefined
 }
 
+interface CompactionPresets {
+  serviceFor(agent: Agent, name: 'compaction'): CompactionEngine | undefined
+}
+
 function resolveCompaction(ctx: Context, agent: Agent): CompactionEngine | undefined {
-  return ctx.agentPresets?.serviceFor(agent, 'compaction')
+  // `ctx.get` keeps the fallback reachable when the Host mounts no agent-preset
+  // registry; a direct `ctx.agentPresets` read throws instead of returning undefined.
+  const presets = ctx.get('agentPresets') as CompactionPresets | undefined
+  return presets?.serviceFor(agent, 'compaction')
     ?? agent.ctx.get('compaction')
     ?? ctx.get('compaction')
 }

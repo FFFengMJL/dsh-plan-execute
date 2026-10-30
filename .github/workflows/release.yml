@@ -59,7 +59,9 @@ jobs:
           echo "commit=${EVENT_SHA}" >> "$GITHUB_OUTPUT"
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --only-shell --with-deps chromium
       - run: pnpm verify
+      - run: pnpm test:browser
       - run: pnpm release:pack
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

@@ -225,3 +225,173 @@ describe('plan approval gate', () => {
     expect(h.selectModel).not.toHaveBeenCalled()
   })
 })
+
+describe('preparation failure boundaries', () => {
+  const state = (h: ReturnType<typeof harness>) =>
+    (h.gateway as unknown as { operations: Map<string, { phase: string; errorCode?: string }> })
+      .operations.get(JSON.stringify([SESSION_ID, CALL_ID, QUESTION_ID]))
+
+  it('fails closed when no compaction service is mounted', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    const mutable = h.host as unknown as {
+      agentPresets: { serviceFor: () => undefined }
+      get: () => undefined
+    }
+    mutable.agentPresets.serviceFor = () => undefined
+    mutable.get = () => undefined
+    ;(h.agent.ctx as unknown as { get: () => undefined }).get = () => undefined
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow('COMPACTION_UNAVAILABLE')
+    expect(state(h)?.phase).toBe('failed')
+    expect(h.selectModel).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when the safe range is below the configured token floor', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    ;(h.gateway as unknown as { minShadowedTokens: number }).minShadowedTokens = 1000
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow('NOTHING_TO_COMPACT')
+    expect(h.compactRegion).not.toHaveBeenCalled()
+  })
+
+  it('rejects a measurement whose node sequence no longer matches the surface', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    h.host.tokenMeter.measure = vi.fn(() => ({
+      nodes: [{ seq: 9, tokens: 100, heuristicTokens: 100 }],
+    })) as never
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow('METER_MISMATCH')
+    expect(h.compactRegion).not.toHaveBeenCalled()
+  })
+
+  it('rejects a protected tail that disappears during compaction', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    const nodes = h.agent.session.surface.nodes as number[]
+    h.compactRegion.mockImplementation(async () => {
+      nodes.splice(nodes.indexOf(3), 1)
+      return { shadowedSeqs: [1, 2] }
+    })
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow('PENDING_BATCH_MISSING')
+    expect(h.selectModel).not.toHaveBeenCalled()
+  })
+
+  it('classifies a rejected model selection and does not release the plan', async () => {
+    const h = harness()
+    h.selectModel.mockRejectedValue(new Error('provider missing'))
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ selection: { provider: 'p', model: 'gone' } }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow('MODEL_SELECTION_FAILED')
+    expect(state(h)?.phase).toBe('failed')
+    expect(state(h)?.errorCode).toBe('MODEL_SELECTION_FAILED')
+  })
+
+  it('treats an abort during model selection as cancellation, not success', async () => {
+    const h = harness()
+    const controller = new AbortController()
+    h.selectModel.mockImplementation(async () => { controller.abort() })
+    const request = { ...h.request, signal: controller.signal } as AskUserQuestionRequest
+
+    const gate = (h.gateway as unknown as { answerWithPreparation: (request: AskUserQuestionRequest, next: () => Promise<AskUserQuestionAnswer>) => Promise<AskUserQuestionAnswer> })
+      .answerWithPreparation
+    await expect(gate.call(h.gateway, request, async () => {
+      await h.gateway.stageApproval(h.stage({ selection: { provider: 'p', model: 'm' } }))
+      return h.answer(APPROVE)
+    })).rejects.toThrow()
+    expect(state(h)?.phase).toBe('cancelled')
+  })
+
+  it('returns the same operation for an identical retried request id', async () => {
+    const h = harness()
+    const first = await h.gate(async () => {
+      const one = await h.gateway.stageApproval(h.stage())
+      const two = await h.gateway.stageApproval(h.stage())
+      expect(two.operationId).toBe(one.operationId)
+      return h.answer(DECLINE)
+    })
+    expect(first).toEqual(h.answer(DECLINE))
+  })
+
+  it('isolates operation reads by plan hash and rejects malformed staging payloads', async () => {
+    const h = harness()
+    await h.gate(async () => {
+      const staged = await h.gateway.stageApproval(h.stage())
+      expect(h.gateway.getOperation({
+        sessionId: SESSION_ID, callId: CALL_ID, questionId: QUESTION_ID, planHash: hash('other'),
+      })).toBeNull()
+      expect(h.gateway.getOperation({
+        sessionId: SESSION_ID, callId: CALL_ID, questionId: QUESTION_ID, planHash: hash(),
+      })?.operationId).toBe(staged.operationId)
+      await expect(h.gateway.stageApproval(h.stage({ mode: 'bogus' as never }))).rejects.toThrow()
+      return h.answer(DECLINE)
+    })
+  })
+
+  it('reads the preset registry through ctx.get and never touches the direct property', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    Object.defineProperty(h.host, 'agentPresets', {
+      configurable: true,
+      get() { throw new Error('direct agentPresets access') },
+    })
+    const get = h.host.get as unknown as (key: string) => unknown
+    h.host.get = ((key: string) => key === 'agentPresets' ? { serviceFor: () => ({ compactRegion: h.compactRegion }) } : get(key)) as never
+    ;(h.agent.ctx as unknown as { get: () => never }).get = () => { throw new Error('agent fallback must not be used') }
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).resolves.toEqual(h.answer(APPROVE))
+    expect(h.compactRegion).toHaveBeenCalledTimes(1)
+    expect(state(h)?.phase).toBe('released')
+  })
+
+  it('falls back to the agent compaction service when no preset registry exists', async () => {
+    const h = harness()
+    compactionPlan.value = { start: 1, end: 2 }
+    Object.defineProperty(h.host, 'agentPresets', {
+      configurable: true,
+      get() { throw new Error('direct agentPresets access') },
+    })
+    h.host.get = (() => undefined) as never
+    ;(h.agent.ctx as unknown as { get: () => { compactRegion: typeof h.compactRegion } }).get = () => ({ compactRegion: h.compactRegion })
+
+    await expect(h.gate(async () => {
+      await h.gateway.stageApproval(h.stage({ mode: 'compact' }))
+      return h.answer(APPROVE)
+    })).resolves.toEqual(h.answer(APPROVE))
+    expect(h.compactRegion).toHaveBeenCalledTimes(1)
+    expect(state(h)?.phase).toBe('released')
+  })
+
+  it('refuses to exceed the operation capacity', async () => {
+    const h = harness()
+    const operations = (h.gateway as unknown as { operations: Map<string, unknown> }).operations
+    for (let index = 0; index < 64; index += 1) {
+      operations.set(`filler-${index}`, { phase: 'validating' })
+    }
+    compactionPlan.value = { start: 1, end: 2 }
+    await expect(h.gate(async () => {
+      await expect(h.gateway.stageApproval(h.stage())).rejects.toThrow('OPERATION_CAPACITY')
+      return h.answer(DECLINE)
+    })).resolves.toBeTruthy()
+  })
+})

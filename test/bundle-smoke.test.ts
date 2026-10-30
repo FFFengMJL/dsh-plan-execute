@@ -22,6 +22,6 @@ describe('client loader bundle', () => {
 
     runInNewContext(loadBundle!, { window })
     expect(typeof loaded?.apply).toBe('function')
-    expect(loaded?.inject).toEqual(['slots', 'locale', 'remote'])
+    expect(loaded?.inject).toEqual(['slots', 'locale', 'remote', 'remote.session'])
   })
 })

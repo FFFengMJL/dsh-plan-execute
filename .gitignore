@@ -3,3 +3,9 @@ lib/
 coverage/
 .release/
 *.tgz
+
+# Generated test artifacts
+test/browser/dist/
+test/browser/artifacts/
+test-results/
+playwright-report/

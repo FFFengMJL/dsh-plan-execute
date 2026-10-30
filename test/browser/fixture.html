@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dsh-plan-execute layout fixture</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, sans-serif;
+        --dsw-alias-label-primary: #e6e8ee;
+        --dsw-alias-label-secondary: #9aa1b0;
+        --dsw-alias-border-l1: #3a3f4b;
+        --dsw-alias-fill-secondary: #2a2e38;
+        --dsw-specific-input-major: #23262e;
+        --dsw-elevation-panel: 0 8px 24px rgba(0, 0, 0, 0.45);
+        --dsw-alias-state-warn-primary: #e9b95f;
+        --dsw-alias-state-danger-primary: #ef6b6b;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #15171c;
+        color: #e6e8ee;
+        font-size: 13px;
+      }
+      .clip {
+        margin: 40px;
+        height: 84px;
+        overflow: hidden;
+        border: 1px solid #3a3f4b;
+        border-radius: 16px;
+        background: #1d2027;
+      }
+      .strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        color: #e9b95f;
+      }
+      .summary {
+        padding: 0 16px 16px;
+        color: #c9ceda;
+      }
+      #slot {
+        display: flex;
+        justify-content: flex-end;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="clip" data-fixture-clip>
+        <div class="strip">
+          <span>Plan awaiting review</span>
+          <div id="slot"></div>
+        </div>
+        <p class="summary">A fixed-height, overflow-hidden card mirrors the native plan-review panel.</p>
+      </section>
+    </main>
+    <script type="module" src="/fixture.js"></script>
+  </body>
+</html>
