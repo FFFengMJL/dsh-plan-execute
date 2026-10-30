@@ -1,0 +1,4 @@
+# Mount the host half of dsh-plan-execute.
+- insert:
+    - id: plan-execute
+      name: dsh-plan-execute
