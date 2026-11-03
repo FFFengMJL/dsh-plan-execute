@@ -27,6 +27,14 @@
 - The client must poll every non-terminal phase (`staged`, `validating`, `compacting`, `selecting-model`) and stop only on `released`, `failed`, or `cancelled`; requests stay serial and responses from an unmounted or replaced review are ignored.
 - 暂存/进度目前是进程内状态；不要假设重启后会恢复。任何持久化改动都要另行设计兼容的数据契约。
 - Staging and progress are process-local; do not assume restart recovery. Any persistence change needs a separately designed compatible data contract.
+- 两套预设是 Host Config 的 volatile 字段（`compactExecution`、`switchExecution`），由 Settings 页通过 `ctx.configForms` 写入当前 profile patch；不新增插件设置 RPC。表单命名空间必须与 [`cordis.patch.yml`](<cordis.patch.yml>) 的 entry id（默认 `plan-execute`）一致。
+- The two presets are volatile Host Config fields (`compactExecution`, `switchExecution`) written to the active profile patch through `ctx.configForms`; do not add a plugin settings RPC. The form namespace must match the entry id in [`cordis.patch.yml`](<cordis.patch.yml>) (default `plan-execute`).
+- 快捷按钮只使用已保存且通过模型目录校验的预设，先暂存再要求用户点击原生批准；不得模拟原生按钮、自动批准或静默替换模型。设置冲突保留草稿，清除预设用 `unset` 恢复继承值。
+- Shortcuts use only saved presets that validate against the model catalog, stage first, and still require the native Approve click; never simulate the native button, auto-approve, or silently substitute a model. Keep drafts on a settings conflict, and clear a preset with `unset` to restore inheritance.
+- 原生“要求修改”在 RC5 中对计划审批是 `ASK_CANCELLED`（卡片没有 `wait.callId`，`dismissal` 为 `cancel`），会结束审批而不是隐藏；`userQuestionPanels.reveal()` 没有可恢复卡片。不要提供假的恢复命令、伪造审批或从历史重建可执行请求。真正的隐藏/恢复需要上游 DSH 提供稳定 `wait.callId` 或 reopen API。
+- In RC5, the native “Request changes” action ends a plan review with `ASK_CANCELLED` (the card has no `wait.callId`, so `dismissal` is `cancel`); it does not hide it, and `userQuestionPanels.reveal()` has no card to restore. Do not ship a fake restore command, fake an approval, or rebuild an executable request from history. True hide/restore needs an upstream DSH `wait.callId` or reopen API.
+- `configForms` 通过 `ctx.inject` 作为可选子插件接入；缺失时面板与手动执行选项仍须加载，快捷按钮/设置页只是不可用。settings/config-editor 的写入使用 revision fence。
+- `configForms` is an optional child injection; without it the panel and manual options must still load, with only the shortcuts/settings page unavailable. Settings/config-editor writes stay revision-fenced.
 
 ## 构建与验收 / Build and verification
 
