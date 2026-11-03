@@ -23,18 +23,62 @@ import { operationStateRequestSchema, stageRequestSchema, TYPERT } from './typer
 
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-user-questions'
 
 export const name = 'plan-execute'
 export const inject = ['typert', 'tokenMeter', 'sessionController']
 
+/** One saved execution target offered by the plan-review shortcuts. */
+export interface ExecutionPreset {
+  readonly provider: string
+  readonly model: string
+  readonly reasoningEffort?: string
+}
+
+/**
+ * One live configuration reference. Settings edits replace the value behind
+ * this reference without remounting the plugin, so callers read `.get()` at
+ * use time instead of caching the snapshot.
+ */
+export interface LiveValue<T> {
+  get(): T
+}
+
 export interface PlanExecuteConfig {
   readonly minShadowedTokens: number
+  /**
+   * Execution target for "compact the earlier history, then execute". Absent
+   * until the user saves a preset in Settings; the quick action stays
+   * unavailable rather than guessing a model.
+   */
+  readonly compactExecution?: LiveValue<ExecutionPreset | undefined>
+  /**
+   * Execution target for "keep the history, then execute". Independent from
+   * {@link compactExecution} because the two approval shortcuts may reasonably
+   * run on different models.
+   */
+  readonly switchExecution?: LiveValue<ExecutionPreset | undefined>
 }
+
+const executionPreset = () => Schema.union([
+  Schema.object({
+    provider: Schema.string().required().min(1),
+    model: Schema.string().required().min(1),
+    reasoningEffort: Schema.string().min(1),
+  }),
+  // An absent preset is the normal state. A bare object schema would otherwise
+  // materialize `{}` and then fail its required provider/model fields.
+  Schema.const(undefined),
+]).volatile()
 
 export const Config: Schema<PlanExecuteConfig> = Schema.object({
   minShadowedTokens: Schema.natural().min(1).default(2000),
+  // Volatile so a Settings write updates the running plugin in place; the Host
+  // only owns the schema, while the Web client reads the persisted presets.
+  compactExecution: executionPreset(),
+  switchExecution: executionPreset(),
 })
 
 interface ActiveReview {
@@ -382,4 +426,15 @@ export class PlanExecuteGateway extends TypertRemoteService {
 
 export function apply(ctx: Context, config: PlanExecuteConfig): void {
   new PlanExecuteGateway(ctx, config)
+
+  // The Web client ships its own "计划审批执行" page, so opt out of any
+  // schema-generated presentation. The child fiber keeps the policy tied to
+  // this plugin instance and re-applies it if Settings is replaced; a
+  // composition without Settings simply never loads the child.
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.effect(
+      () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
+      `${name}: settings presentation`,
+    )
+  })
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
-import { PlanExecuteGateway } from '../src/index.js'
+import { apply, PlanExecuteGateway } from '../src/index.js'
 import { TYPERT } from '../src/typert.js'
 
 const PLAN = '# Plan\n\n- Do the work.'
@@ -9,6 +9,8 @@ const PLAN = '# Plan\n\n- Do the work.'
 interface Harness {
   readonly ctx: Context
   readonly gateway: PlanExecuteGateway
+  readonly settingsConfigure: ReturnType<typeof vi.fn>
+  readonly fiber: { marker: string }
   readonly listeners: Map<string, { listener: (...args: never[]) => unknown; options: unknown }[]>
   readonly effects: Array<() => void>
   readonly typert: unknown[]
@@ -21,12 +23,24 @@ function harness(): Harness {
   const effects: Array<() => void> = []
   const typert: unknown[] = []
   const compactRegion = vi.fn(async () => ({ shadowedSeqs: [] }))
+  const settingsConfigure = vi.fn(() => () => {})
+  const fiber = { marker: 'plan-execute' }
   const ctx = {
     reflect: { provide: () => {} },
     effect: (factory: () => unknown) => {
       const dispose = factory()
       if (typeof dispose === 'function') effects.push(dispose as () => void)
       return dispose
+    },
+    fiber,
+    inject: (deps: string[], callback: (child: Record<string, unknown>) => unknown) => {
+      if (deps.includes('settings')) {
+        callback({
+          effect: ctx.effect,
+          settings: { configure: settingsConfigure },
+        })
+      }
+      return { then: () => {} }
     },
     on: (event: string, listener: (...args: never[]) => unknown, options: unknown) => {
       const entries = listeners.get(event) ?? []
@@ -45,6 +59,8 @@ function harness(): Harness {
   return {
     ctx: ctx as unknown as Context,
     gateway,
+    settingsConfigure,
+    fiber,
     listeners,
     effects,
     typert,
@@ -106,6 +122,12 @@ describe('gateway lifecycle through the real constructor', () => {
     expect(resolved).toBe(false)
     settle?.({ answers: [{ id: 'plan-review', selected: ['Keep planning'] }] })
     await expect(pending).resolves.toEqual({ answers: [{ id: 'plan-review', selected: ['Keep planning'] }] })
+  })
+
+  it('opts this plugin instance out of generated settings UI through an optional child', () => {
+    const h = harness()
+    apply(h.ctx, { minShadowedTokens: 50 })
+    expect(h.settingsConfigure).toHaveBeenCalledWith({ auto: false }, h.fiber)
   })
 
   it('fails closed after disposal and clears the lifetime', async () => {

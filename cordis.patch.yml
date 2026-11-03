@@ -1,4 +1,6 @@
 # Mount the host half of dsh-plan-execute.
+# Keep this entry id in sync with SETTINGS_ENTRY_ID in src/client/presets.ts;
+# the client settings form addresses its Host Config by this profile entry id.
 - insert:
     - id: plan-execute
       name: dsh-plan-execute
