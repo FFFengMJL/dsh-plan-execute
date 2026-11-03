@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-remotes/client'
 import { apply } from '../src/client/index.js'
+import { PresetStore, type PresetView } from '../src/client/presets.js'
 import type { OperationPhase, OperationState, StageApprovalRequest } from '../src/protocol.js'
 
 const PLAN = '# Approved plan\n\nKeep this plan authoritative.'
@@ -61,6 +62,8 @@ interface MountOptions {
     getOperation: ReturnType<typeof vi.fn>
   }
   readonly projection?: unknown
+  readonly presets?: PresetView
+  readonly optionalServices?: boolean
 }
 
 async function mount(options: MountOptions = {}) {
@@ -76,6 +79,17 @@ async function mount(options: MountOptions = {}) {
   }))
   let Captured: ComponentType<Record<string, unknown>> | undefined
   let injectFace: Record<string, unknown> = {}
+  const registered = new Map<string, ComponentType<Record<string, unknown>>>()
+  const configForms = {
+    get: vi.fn(() => ({
+      getSnapshot: () => ({ status: 'ready' as const, value: {}, base: {}, user: {}, revision: 0, writable: true }),
+      subscribe: () => () => {},
+      mutate: vi.fn(async () => true),
+      unset: vi.fn(async () => true),
+    })),
+    whileServed: vi.fn((namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void) => register(new Set(namespaces))),
+  }
+  let childContext: Record<string, unknown> | undefined
 
   const ctx = {
     effect: (factory: () => unknown) => {
@@ -83,24 +97,47 @@ async function mount(options: MountOptions = {}) {
       if (typeof dispose === 'function') disposers.push(dispose as () => void)
       return dispose
     },
-    locale: { register: () => () => {} },
+    locale: { register: () => () => {}, bind: () => t },
     remote: {
       $mount: async () => () => {},
       session: { modelCatalog },
     },
     get: (key: string) => key === 'remote.planExecute' ? gateway : undefined,
+    // By default the panel test composes without Settings or the command
+    // surface; the optional children simply never activate.
+    inject: (_deps: readonly string[], callback: (child: Record<string, unknown>) => unknown) => {
+      if (options.optionalServices === true && childContext !== undefined) callback(childContext)
+      return { then: () => {} }
+    },
     slots: {
       inject: (_name: string, factory: () => unknown) => factory(),
-      register: (definition: { inject: () => Record<string, unknown> }, component: ComponentType<Record<string, unknown>>) => {
-        Captured = component
-        injectFace = definition.inject()
+      register: (
+        definition: { name: string; inject?: () => Record<string, unknown> },
+        component: ComponentType<Record<string, unknown>>,
+      ) => {
+        registered.set(definition.name, component)
+        if (definition.name === 'conversation.plan-review.actions') {
+          Captured = component
+          injectFace = definition.inject?.() ?? {}
+        }
         return () => {}
       },
     },
   }
 
+  childContext = {
+    effect: ctx.effect,
+    locale: ctx.locale,
+    get: ctx.get,
+    slots: ctx.slots,
+    configForms,
+  }
+
   await apply(ctx as never)
   if (Captured === undefined) throw new Error('slot component was not registered')
+
+  const presetStore = injectFace.presets as PresetStore
+  if (options.presets !== undefined) presetStore.publish(options.presets)
 
   const props = {
     review,
@@ -111,7 +148,23 @@ async function mount(options: MountOptions = {}) {
   }
   const view = render(<Captured {...props} {...injectFace} />)
   expect(document.body.contains(view.container)).toBe(true)
-  return { gateway, modelCatalog, view, disposers }
+  return { gateway, modelCatalog, view, disposers, presetStore, registered, configForms }
+}
+
+
+function presetView(overrides: Partial<PresetView> = {}): PresetView {
+  return {
+    status: 'ready',
+    presets: {
+      compact: { provider: 'p', model: 'm1', reasoningEffort: 'high' },
+      switch: { provider: 'p', model: 'm2' },
+    },
+    inherited: { compact: null, switch: null },
+    overridden: { compact: true, switch: true },
+    writable: true,
+    revision: 1,
+    ...overrides,
+  }
 }
 
 async function openPanel(): Promise<HTMLElement> {
@@ -275,5 +328,105 @@ describe('execution options client', () => {
     expect(screen.getByRole('button', { name: 'retry' })).toBeTruthy()
     resolveCatalog?.({ ok: true, value: catalog })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+  })
+
+  it('stages the saved compact preset and still waits for the native approval', async () => {
+    let staged: StageApprovalRequest | undefined
+    const gateway = {
+      stageApproval: vi.fn(async (request: StageApprovalRequest) => {
+        staged = request
+        return { ok: true as const, value: { operationId: 'op-1', phase: 'staged' as const } }
+      }),
+      getOperation: vi.fn(async () => ({
+        ok: true as const,
+        value: staged === undefined ? null : {
+          operationId: 'op-1',
+          phase: 'staged' as const,
+          mode: staged.mode,
+          ...(staged.selection === undefined ? {} : { selection: staged.selection }),
+          updatedAt: Date.now(),
+        },
+      })),
+    }
+    await mount({ gateway, presets: presetView() })
+    const button = screen.getByRole('button', { name: /quickCompact:/ })
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+
+    fireEvent.click(button)
+    await waitFor(() => expect(gateway.stageApproval).toHaveBeenCalledTimes(1))
+    const request = gateway.stageApproval.mock.calls[0]![0] as StageApprovalRequest
+    expect(request.mode).toBe('compact')
+    expect(request.selection).toEqual({ provider: 'p', model: 'm1', reasoningEffort: 'high' })
+    expect(await screen.findByText(/quickStaged/)).toBeTruthy()
+  })
+
+  it('stages the keep preset without inventing a reasoning effort', async () => {
+    let staged: StageApprovalRequest | undefined
+    const gateway = {
+      stageApproval: vi.fn(async (request: StageApprovalRequest) => {
+        staged = request
+        return { ok: true as const, value: { operationId: 'op-1', phase: 'staged' as const } }
+      }),
+      getOperation: vi.fn(async () => ({
+        ok: true as const,
+        value: staged === undefined ? null : {
+          operationId: 'op-1',
+          phase: 'staged' as const,
+          mode: staged.mode,
+          ...(staged.selection === undefined ? {} : { selection: staged.selection }),
+          updatedAt: Date.now(),
+        },
+      })),
+    }
+    await mount({ gateway, presets: presetView() })
+    const button = screen.getByRole('button', { name: /quickKeep:/ })
+    await waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+
+    fireEvent.click(button)
+    await waitFor(() => expect(gateway.stageApproval).toHaveBeenCalledTimes(1))
+    const request = gateway.stageApproval.mock.calls[0]![0] as StageApprovalRequest
+    expect(request.mode).toBe('keep')
+    expect(request.selection).toEqual({ provider: 'p', model: 'm2' })
+  })
+
+  it('explains an unconfigured shortcut instead of staging a guessed model', async () => {
+    const gateway = {
+      stageApproval: vi.fn(async () => ({ ok: true as const, value: { operationId: 'op-1', phase: 'staged' as const } })),
+      getOperation: vi.fn(async () => ({ ok: true as const, value: null })),
+    }
+    await mount({ gateway, presets: presetView({ presets: { compact: null, switch: null } }) })
+    const button = screen.getByRole('button', { name: /quickCompact:/ })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(gateway.stageApproval).not.toHaveBeenCalled()
+    expect(screen.getByText(/quickPresetMissing/)).toBeTruthy()
+  })
+
+  it('disables a preset whose model is no longer in the catalog', async () => {
+    const gateway = {
+      stageApproval: vi.fn(async () => ({ ok: true as const, value: { operationId: 'op-1', phase: 'staged' as const } })),
+      getOperation: vi.fn(async () => ({ ok: true as const, value: null })),
+    }
+    await mount({
+      gateway,
+      presets: presetView({ presets: { compact: { provider: 'p', model: 'gone' }, switch: null } }),
+    })
+    await openPanel()
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Model One' })).toBeTruthy())
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    const button = screen.getByRole('button', { name: /quickCompact:/ })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(button)
+    expect(gateway.stageApproval).not.toHaveBeenCalled()
+    expect(screen.getByText(/quickPresetInvalid/)).toBeTruthy()
+  })
+
+  it('wires the optional settings page without blocking the panel', async () => {
+    const result = await mount({ optionalServices: true })
+    expect(result.registered.has('conversation.plan-review.actions')).toBe(true)
+    expect(result.registered.has('settings.section')).toBe(true)
+    expect(result.configForms.get).toHaveBeenCalledWith('plan-execute')
+    expect(result.configForms.whileServed).toHaveBeenCalledWith(['plan-execute'], expect.any(Function))
   })
 })

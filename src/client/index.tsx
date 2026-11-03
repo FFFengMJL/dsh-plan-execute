@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelCatalog, ModelSelection, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
@@ -6,9 +6,10 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-user-questions/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { OperationPhase, OperationState, StageApprovalRequest } from '../protocol.js'
+import type { ExecutionMode, OperationPhase, OperationState, StageApprovalRequest } from '../protocol.js'
 import {
   PACKAGE_NAME,
   REQUEST_SYMBOL,
@@ -25,7 +26,6 @@ import {
   type OperationStateRequest,
 } from '../protocol.js'
 import {
-  CATALOG_LOAD_TIMEOUT_MS,
   defaultEffort,
   effortLabel,
   effortLevels,
@@ -36,9 +36,19 @@ import {
   selectionFor,
   supportsEffort,
   validateSelection,
-  type CatalogLoad,
   type SelectionVerdict,
 } from './model-catalog.js'
+import { describeError } from './describe.js'
+import {
+  PresetController,
+  PresetStore,
+  SETTINGS_ENTRY_ID,
+  presetVerdict,
+  type ExecutionPreset,
+  type PresetFormValue,
+} from './presets.js'
+import { SETTINGS_NS, SettingsPage, settingsDictionaries } from './settings.js'
+import { useModelCatalog } from './use-catalog.js'
 
 const NS = 'planExecute'
 const zh = {
@@ -81,6 +91,26 @@ const zh = {
   'failed': '准备失败：{code}。计划未获批准，请重新审阅。',
   'cancelled': '操作已取消，计划未获批准。',
   'notice': '自定义模型会继续用于本会话，并会通过 DSH 公共 API 更新宿主默认模型，可能影响新会话；若不希望改变默认值，请选“沿用当前模型”。压缩摘要只是背景，最终批准计划仍是执行依据。',
+  'quickGroup': '按预设',
+  'quickCompact': '压缩后执行',
+  'quickKeep': '保留后执行',
+  'quickMore': '选项',
+  'quickCompactHint': '按已保存的“压缩历史后执行”预设暂存；仍需点击原生批准。',
+  'quickKeepHint': '按已保存的“保留历史后执行”预设暂存；仍需点击原生批准。',
+  'quickStaged': '已暂存：{mode} · {target}。请点击下方的原生「同意执行」按钮。',
+  'quickBusy': '正在暂存…',
+  'quickPresetUnavailable': '预设设置暂不可用。',
+  'quickPresetMissing': '尚未配置该快捷方式；请在“设置 → 计划审批执行”中配置。',
+  'quickPresetInvalid': '预设模型当前不可用；请更新设置。',
+  'quickCatalogLoading': '正在读取模型目录…',
+  'quickCatalogUnavailable': '模型目录不可用，无法校验预设。',
+  'quickOperationBusy': '已有执行准备进行中。',
+  'presetSummary': '当前预设：压缩 {compact}；保留 {keep}。',
+  'presetNone': '未配置',
+  'settingsHint': '可在“设置 → 计划审批执行”中修改预设。',
+  'modeCompactShort': '压缩历史后执行',
+  'modeKeepShort': '保留历史后执行',
+  'staging': '正在暂存…',
 }
 const en: Record<keyof typeof zh, string> = {
   'options': 'Execution options',
@@ -122,6 +152,26 @@ const en: Record<keyof typeof zh, string> = {
   'failed': 'Preparation failed: {code}. The plan was not approved; review it again.',
   'cancelled': 'Operation cancelled; the plan was not approved.',
   'notice': 'A custom model remains active for this Session and the public DSH API also updates the Host default, which may affect new Sessions. Choose “Use current model” to avoid changing that default. The summary is background; the final approved plan remains authoritative.',
+  'quickGroup': 'Presets',
+  'quickCompact': 'Compact, then run',
+  'quickKeep': 'Keep, then run',
+  'quickMore': 'Options',
+  'quickCompactHint': 'Stages the saved “compact history, then execute” preset; the native Approve button still executes.',
+  'quickKeepHint': 'Stages the saved “keep history, then execute” preset; the native Approve button still executes.',
+  'quickStaged': 'Staged: {mode} · {target}. Use the native “Approve” button below.',
+  'quickBusy': 'Staging…',
+  'quickPresetUnavailable': 'Preset settings are currently unavailable.',
+  'quickPresetMissing': 'This shortcut has no preset yet; configure it in Settings → Plan approval execution.',
+  'quickPresetInvalid': 'The preset model is currently unavailable; update the settings.',
+  'quickCatalogLoading': 'Loading the model catalog…',
+  'quickCatalogUnavailable': 'The model catalog is unavailable, so the preset cannot be validated.',
+  'quickOperationBusy': 'Execution preparation is already in progress.',
+  'presetSummary': 'Current presets: compact {compact}; keep {keep}.',
+  'presetNone': 'not configured',
+  'settingsHint': 'Change presets in Settings → Plan approval execution.',
+  'modeCompactShort': 'compact history, then execute',
+  'modeKeepShort': 'keep history, then execute',
+  'staging': 'Staging…',
 }
 
 type Key = keyof typeof zh
@@ -145,13 +195,16 @@ type ModelSelectionProjection = {
   readonly next: ModelSelection | null
 }
 type ProjectionReader = (key: 'modelSelection') => ModelSelectionProjection | undefined
-type PlanExecutionProps = Props & { gateway: PlanExecuteRemote; loadCatalog: () => Promise<ModelCatalog> }
+type PlanExecutionProps = Props & {
+  gateway: PlanExecuteRemote
+  loadCatalog: () => Promise<ModelCatalog>
+  presets: PresetStore
+}
 
 const FALLBACK_PROJECTION: ProjectionReader = () => undefined
 const NO_EFFORT = ''
 const POLL_INTERVAL_MS = 500
 const TERMINAL_PHASES: ReadonlySet<OperationPhase> = new Set(['released', 'failed', 'cancelled'])
-const MAX_ERROR_LENGTH = 180
 
 interface PanelPosition {
   readonly top: number
@@ -167,11 +220,6 @@ function translate(t: Translator, key: Key, params?: Record<string, unknown>): s
 function unwrap<T>(result: RemoteResult<T>): T {
   if (!result.ok) throw new Error(`${result.error.code ?? 'REMOTE_ERROR'}: ${result.error.message ?? 'Request failed'}`)
   return result.value
-}
-
-function describeError(cause: unknown): string {
-  const message = cause instanceof Error ? cause.message : String(cause)
-  return message.length > MAX_ERROR_LENGTH ? `${message.slice(0, MAX_ERROR_LENGTH)}…` : message
 }
 
 function newRequestId(): string {
@@ -205,14 +253,44 @@ function partialFailureNames(catalog: ModelCatalog | null): string | undefined {
   return failures.length > 3 ? `${names.join(', ')}, …` : names.join(', ')
 }
 
+
+function CompactIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+      <rect x="2.5" y="3" width="11" height="2.4" rx="0.7" />
+      <path d="M3.6 5.4v6.1a1 1 0 0 0 1 1h6.8a1 1 0 0 0 1-1V5.4" />
+      <path d="M6.5 7.7h3" />
+    </svg>
+  )
+}
+
+function KeepIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+      <path d="M5.2 3.6l6.8 4.4-6.8 4.4z" />
+    </svg>
+  )
+}
+
+function SlidersIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+      <path d="M2.5 4.2h11M2.5 8h11M2.5 11.8h11" />
+      <circle cx="5.2" cy="4.2" r="1.2" />
+      <circle cx="10.4" cy="8" r="1.2" />
+      <circle cx="6.8" cy="11.8" r="1.2" />
+    </svg>
+  )
+}
+
 function PlanExecutionOptions(props: PlanExecutionProps) {
-  const { review, requestKey, sessionId, t, gateway, loadCatalog } = props
+  const { review, requestKey, sessionId, t, gateway, loadCatalog, presets } = props
   const readProjection = (props.useProjection ?? FALLBACK_PROJECTION) as unknown as ProjectionReader
   const projection = readProjection('modelSelection')
+  const presetView = useSyncExternalStore(presets.subscribe, presets.getSnapshot, presets.getSnapshot)
+  const catalogState = useModelCatalog(loadCatalog, sessionId)
 
   const [open, setOpen] = useState(false)
-  const [catalogLoad, setCatalogLoad] = useState<CatalogLoad>({ phase: 'loading', catalog: null, error: null })
-  const [reload, setReload] = useState(0)
   const [modelValue, setModelValue] = useState('')
   const [effortByModel, setEffortByModel] = useState<Record<string, string>>({})
   const [mode, setMode] = useState<'compact' | 'keep'>('keep')
@@ -226,7 +304,9 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
+  const errorRef = useRef<HTMLParagraphElement>(null)
   const stagedByUserRef = useRef(false)
+  const busyRef = useRef(false)
   const generatedId = useId()
   const panelId = `dpe-panel-${generatedId.replace(/[^a-zA-Z0-9_-]/g, '')}`
   const titleId = `${panelId}-title`
@@ -239,7 +319,7 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
   }), [sessionId, review.callId, review.id])
   const reviewIdentity = `${reviewAddress.sessionId}\u0000${reviewAddress.callId}\u0000${reviewAddress.questionId}`
 
-  const catalog = catalogLoad.catalog
+  const catalog = catalogState.catalog
   const selectedModel = useMemo(() => {
     const choice = parseModelKey(modelValue)
     return choice === undefined ? undefined : findModel(catalog, choice.provider, choice.model)
@@ -287,32 +367,6 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
     setModelValue('')
     setEffortByModel({})
   }, [reviewIdentity])
-
-  useEffect(() => {
-    let live = true
-    let settled = false
-    setCatalogLoad(previous => ({ phase: 'loading', catalog: previous.catalog, error: null }))
-    const timer = window.setTimeout(() => {
-      if (!live || settled) return
-      settled = true
-      setCatalogLoad(previous => ({ phase: 'timeout', catalog: previous.catalog, error: null }))
-    }, CATALOG_LOAD_TIMEOUT_MS)
-    void loadCatalog().then(value => {
-      if (!live || settled) return
-      settled = true
-      window.clearTimeout(timer)
-      setCatalogLoad({ phase: 'ready', catalog: value, error: null })
-    }).catch((cause: unknown) => {
-      if (!live || settled) return
-      settled = true
-      window.clearTimeout(timer)
-      setCatalogLoad(previous => ({ phase: 'error', catalog: previous.catalog, error: describeError(cause) }))
-    })
-    return () => {
-      live = false
-      window.clearTimeout(timer)
-    }
-  }, [loadCatalog, reload, sessionId])
 
   useEffect(() => {
     if (!hasCall || operationHash === '') return
@@ -377,6 +431,12 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
   }, [open])
 
   useEffect(() => {
+    if (error === null) return
+    const target = errorRef.current
+    if (target !== null && typeof target.scrollIntoView === 'function') target.scrollIntoView({ block: 'nearest' })
+  }, [error])
+
+  useEffect(() => {
     if (!open) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
@@ -438,7 +498,7 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
       viewport?.removeEventListener('resize', update)
       viewport?.removeEventListener('scroll', update)
     }
-  }, [open, catalogLoad.phase, modelValue, error, operation?.phase])
+  }, [open, catalogState.phase, modelValue, error, operation?.phase])
 
   const selectModel = (value: string): void => {
     setModelValue(value)
@@ -458,8 +518,69 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
     setError(null)
   }
 
+  const applySelectionToForm = (nextMode: ExecutionMode, selection: ModelChoice | undefined): void => {
+    setMode(nextMode)
+    if (selection === undefined) {
+      setModelValue('')
+      return
+    }
+    const key = modelKey(selection)
+    setModelValue(key)
+    setEffortByModel(previous => {
+      const next = { ...previous }
+      if (selection.reasoningEffort === undefined) delete next[key]
+      else next[key] = selection.reasoningEffort
+      return next
+    })
+  }
+
+  /**
+   * Stage one explicit pair. The mode and selection are passed by value so a
+   * shortcut never stages a value React has not committed yet.
+   */
+  const stageSelection = async (
+    nextMode: ExecutionMode,
+    selection: ModelChoice | undefined,
+  ): Promise<boolean> => {
+    if (busyRef.current) return false
+    if (!hasCall) {
+      setError(translate(t, 'noCall'))
+      return false
+    }
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const request: StageApprovalRequest = {
+        ...reviewAddress,
+        planHash: await planHash(review.plan),
+        mode: nextMode,
+        ...(selection === undefined ? {} : { selection }),
+        requestId: newRequestId(),
+      }
+      const staged = unwrap(await gateway.stageApproval(request))
+      stagedByUserRef.current = true
+      setOperation({
+        operationId: staged.operationId,
+        phase: 'staged',
+        mode: nextMode,
+        ...(selection === undefined ? {} : { selection }),
+        updatedAt: Date.now(),
+      })
+      setDirty(false)
+      applySelectionToForm(nextMode, selection)
+      return true
+    } catch (cause) {
+      setError(describeError(cause))
+      return false
+    } finally {
+      busyRef.current = false
+      setBusy(false)
+    }
+  }
+
   const save = async (): Promise<void> => {
-    if (busy) return
+    if (busyRef.current) return
     if (!hasCall) {
       setError(translate(t, 'noCall'))
       return
@@ -472,32 +593,52 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
         return
       }
     }
-    setBusy(true)
-    setError(null)
-    try {
-      const request: StageApprovalRequest = {
-        ...reviewAddress,
-        planHash: await planHash(review.plan),
-        mode,
-        ...(selection === undefined ? {} : { selection }),
-        requestId: newRequestId(),
-      }
-      const staged = unwrap(await gateway.stageApproval(request))
-      stagedByUserRef.current = true
-      setOperation({
-        operationId: staged.operationId,
-        phase: 'staged',
-        mode,
-        ...(selection === undefined ? {} : { selection }),
-        updatedAt: Date.now(),
-      })
-      setDirty(false)
-    } catch (cause) {
-      setError(describeError(cause))
-    } finally {
-      setBusy(false)
-    }
+    await stageSelection(mode, selection)
   }
+
+  const quickPreset = (kind: 'compact' | 'keep'): ExecutionPreset | null => (
+    kind === 'compact' ? presetView.presets.compact : presetView.presets.switch
+  )
+
+  const quickBlock = (kind: 'compact' | 'keep'): Key | null => {
+    if (!hasCall) return 'noCall'
+    if (presetView.status !== 'ready') return 'quickPresetUnavailable'
+    if (quickPreset(kind) === null) return 'quickPresetMissing'
+    if (busy) return 'staging'
+    if (operation !== null && !TERMINAL_PHASES.has(operation.phase) && operation.phase !== 'staged') {
+      return 'quickOperationBusy'
+    }
+    if (catalogState.phase === 'loading') return 'quickCatalogLoading'
+    if (catalog === null) return 'quickCatalogUnavailable'
+    if (presetVerdict(catalog, quickPreset(kind)) !== 'ok') return 'quickPresetInvalid'
+    return null
+  }
+
+  const quickStage = async (kind: 'compact' | 'keep'): Promise<void> => {
+    const blocked = quickBlock(kind)
+    if (blocked !== null) {
+      if (blocked !== 'staging') setError(translate(t, blocked))
+      return
+    }
+    const preset = quickPreset(kind)
+    if (preset === null) return
+    await stageSelection(kind === 'compact' ? 'compact' : 'keep', preset)
+  }
+
+  const quickTitle = (kind: 'compact' | 'keep'): string => {
+    const blocked = quickBlock(kind)
+    if (blocked !== null) return translate(t, blocked)
+    const preset = quickPreset(kind)
+    const base = translate(t, kind === 'compact' ? 'quickCompactHint' : 'quickKeepHint')
+    if (preset === null) return base
+    const effort = preset.reasoningEffort === undefined
+      ? undefined
+      : effortLabel(findModel(catalog, preset.provider, preset.model), preset.reasoningEffort) ?? preset.reasoningEffort
+    return `${base} ${modelLabel(catalog, preset)}${effort === undefined ? '' : ` · ${effort}`}`
+  }
+
+  const compactBlocked = quickBlock('compact')
+  const keepBlocked = quickBlock('keep')
 
   const toggle = (): void => { setOpen(value => !value) }
 
@@ -529,6 +670,42 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
         <h2 className="dpe-title" id={titleId}>{translate(t, 'title')}</h2>
         <button type="button" className="dpe-close" aria-label={translate(t, 'close')} onClick={close}>×</button>
       </div>
+      <p className="dpe-hint dpe-preset-summary">
+        {translate(t, 'presetSummary', {
+          compact: quickPreset('compact') === null ? translate(t, 'presetNone') : modelLabel(catalog, quickPreset('compact')!),
+          keep: quickPreset('keep') === null ? translate(t, 'presetNone') : modelLabel(catalog, quickPreset('keep')!),
+        })}
+        {' '}
+        {translate(t, 'settingsHint')}
+      </p>
+      <div className="dpe-quick-panel" role="group" aria-label={translate(t, 'quickGroup')}>
+        <button
+          type="button"
+          className="dpe-panel-quick"
+          aria-disabled={compactBlocked !== null}
+          title={quickTitle('compact')}
+          onClick={() => { void quickStage('compact') }}
+        >
+          <CompactIcon />
+          <span className="dpe-panel-quick-text">
+            <span>{translate(t, 'quickCompact')}</span>
+            <small>{quickPreset('compact') === null ? translate(t, 'presetNone') : modelLabel(catalog, quickPreset('compact')!)}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="dpe-panel-quick"
+          aria-disabled={keepBlocked !== null}
+          title={quickTitle('keep')}
+          onClick={() => { void quickStage('keep') }}
+        >
+          <KeepIcon />
+          <span className="dpe-panel-quick-text">
+            <span>{translate(t, 'quickKeep')}</span>
+            <small>{quickPreset('keep') === null ? translate(t, 'presetNone') : modelLabel(catalog, quickPreset('keep')!)}</small>
+          </span>
+        </button>
+      </div>
       <label className="dpe-field">
         <span>{translate(t, 'model')}</span>
         <select value={modelValue} disabled={busy} onChange={event => { selectModel(event.currentTarget.value) }}>
@@ -547,20 +724,20 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
             {currentEffortName === undefined ? null : ` · ${translate(t, 'currentEffort', { effort: currentEffortName })}`}
           </small>
         )}
-        {catalogLoad.phase === 'loading' && <small className="dpe-hint">{translate(t, 'loading')}</small>}
-        {catalogLoad.phase === 'timeout' && (
+        {catalogState.phase === 'loading' && <small className="dpe-hint">{translate(t, 'loading')}</small>}
+        {catalogState.phase === 'timeout' && (
           <small className="dpe-warn">
             {translate(t, 'catalogTimeout')}
-            <button type="button" className="dpe-link" onClick={() => { setReload(value => value + 1) }}>{translate(t, 'retry')}</button>
+            <button type="button" className="dpe-link" onClick={catalogState.retry}>{translate(t, 'retry')}</button>
           </small>
         )}
-        {catalogLoad.phase === 'error' && (
+        {catalogState.phase === 'error' && (
           <small className="dpe-warn">
-            {translate(t, 'catalogError', { message: catalogLoad.error ?? '' })}
-            <button type="button" className="dpe-link" onClick={() => { setReload(value => value + 1) }}>{translate(t, 'retry')}</button>
+            {translate(t, 'catalogError', { message: catalogState.error ?? '' })}
+            <button type="button" className="dpe-link" onClick={catalogState.retry}>{translate(t, 'retry')}</button>
           </small>
         )}
-        {catalogLoad.phase === 'ready' && catalog !== null && catalog.groups.length === 0 && (
+        {catalogState.phase === 'ready' && catalog !== null && catalog.groups.length === 0 && (
           <small className="dpe-hint">{translate(t, 'catalogEmpty')}</small>
         )}
         {failures !== undefined && <small className="dpe-hint">{translate(t, 'catalogPartial', { names: failures })}</small>}
@@ -593,24 +770,86 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
       {!dirty && phaseMessage !== null && <p className="dpe-status" role="status">{phaseMessage}</p>}
       {pollError !== null && <p className="dpe-hint">{translate(t, 'pollError')}</p>}
       <p className="dpe-notice">{translate(t, 'notice')}</p>
-      {error !== null && <p className="dpe-error" role="alert">{translate(t, 'error', { message: error })}</p>}
+      {error !== null && <p ref={errorRef} className="dpe-error" role="alert">{translate(t, 'error', { message: error })}</p>}
     </div>,
     document.body,
   ) : null
 
+  const selectionLabel = (selection: ModelSelection | undefined): string => {
+    if (selection === undefined) return translate(t, 'current')
+    const effort = selection.reasoningEffort === undefined
+      ? undefined
+      : effortLabel(findModel(catalog, selection.provider, selection.model), selection.reasoningEffort)
+        ?? selection.reasoningEffort
+    return `${modelLabel(catalog, selection)}${effort === undefined ? '' : ` (${effort})`}`
+  }
+  const stagedSummary = operation?.phase === 'staged'
+    ? translate(t, 'quickStaged', {
+        mode: translate(t, operation.mode === 'compact' ? 'modeCompactShort' : 'modeKeepShort'),
+        target: selectionLabel(operation.selection),
+      })
+    : null
+  // The expanded panel owns detail; the collapsed strip only carries the
+  // state a person needs before reopening it.
+  const statusLine = open
+    ? null
+    : busy
+      ? translate(t, 'staging')
+      : error !== null
+        ? translate(t, 'error', { message: error })
+        : stagedSummary
+          ?? (operation !== null && !TERMINAL_PHASES.has(operation.phase) ? phaseMessage : null)
+
   return (
-    <div className="dpe-root">
-      <button
-        ref={triggerRef}
-        type="button"
-        className="dpe-trigger"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-controls={panelId}
-        onClick={toggle}
-      >
-        {translate(t, 'options')}
-      </button>
+    <div className="dpe-root" data-plan-execute={requestKey}>
+      <div className="dpe-group" role="group" aria-label={translate(t, 'quickGroup')}>
+        <span className="dpe-group-label">{translate(t, 'quickGroup')}</span>
+        <button
+          type="button"
+          className="dpe-quick"
+          aria-disabled={compactBlocked !== null}
+          title={quickTitle('compact')}
+          aria-label={`${translate(t, 'quickCompact')}: ${quickTitle('compact')}`}
+          onClick={() => { void quickStage('compact') }}
+        >
+          <CompactIcon />
+          <span className="dpe-quick-long">{translate(t, 'quickCompact')}</span>
+        </button>
+        <button
+          type="button"
+          className="dpe-quick"
+          aria-disabled={keepBlocked !== null}
+          title={quickTitle('keep')}
+          aria-label={`${translate(t, 'quickKeep')}: ${quickTitle('keep')}`}
+          onClick={() => { void quickStage('keep') }}
+        >
+          <KeepIcon />
+          <span className="dpe-quick-long">{translate(t, 'quickKeep')}</span>
+        </button>
+        <button
+          ref={triggerRef}
+          type="button"
+          className="dpe-more"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          aria-controls={panelId}
+          aria-label={translate(t, 'options')}
+          title={translate(t, 'options')}
+          onClick={toggle}
+        >
+          <SlidersIcon />
+          <span className="dpe-more-label">{translate(t, 'quickMore')}</span>
+        </button>
+      </div>
+      {statusLine !== null && (
+        <p
+          className={error !== null ? 'dpe-quick-status dpe-quick-status-error' : 'dpe-quick-status'}
+          role={error !== null ? 'alert' : 'status'}
+          title={statusLine}
+        >
+          {statusLine}
+        </p>
+      )}
       {panel}
     </div>
   )
@@ -621,26 +860,79 @@ function css(): () => void {
   const style = document.createElement('style')
   style.dataset.pluginCss = 'dsh-plan-execute'
   style.textContent = `
-    .dpe-root{display:flex;align-items:center;position:relative;font:inherit}
-    .dpe-trigger{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer;padding:4px 8px;border-radius:6px}
-    .dpe-trigger:hover,.dpe-trigger:focus-visible{background:var(--dsw-alias-fill-secondary);outline:none}
-    .dpe-panel{box-sizing:border-box;position:fixed;z-index:60;display:grid;gap:10px;padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-panel);color:var(--dsw-alias-label-primary);overflow:auto;overscroll-behavior:contain;outline:none}
+    .dpe-root{display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:0;max-width:100%;margin-left:10px;padding-left:10px;border-left:1px solid color-mix(in srgb,currentColor 24%,transparent);font:inherit}
+    .dpe-group{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:1px;min-width:0;max-width:100%;padding:2px;border:1px solid var(--dsw-alias-border-l1);border-radius:9px;background:var(--dsw-specific-input-major);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgb(0 0 0 / .05)}
+    .dpe-group-label{padding:0 6px;font-size:11px;line-height:1;color:var(--dsw-alias-label-secondary);white-space:nowrap}
+    .dpe-quick,.dpe-more{display:inline-flex;align-items:center;gap:4px;border:0;border-radius:7px;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;font-weight:500;line-height:1;padding:6px 8px;cursor:pointer;white-space:nowrap}
+    .dpe-quick svg,.dpe-more svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+    .dpe-quick:hover:not(:disabled),.dpe-more:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .dpe-quick:focus-visible,.dpe-more:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+    .dpe-quick[aria-disabled="true"]{opacity:.42;cursor:not-allowed}
+    .dpe-more{margin-left:1px;padding-left:8px;border-left:1px solid var(--dsw-alias-border-l1);border-radius:0 7px 7px 0;color:var(--dsw-alias-label-secondary)}
+    .dpe-quick-status{max-width:min(380px,60vw);margin:0;font-size:11px;line-height:1.35;color:inherit;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .dpe-quick-panel{display:none;gap:6px}
+    .dpe-panel-quick{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;background:var(--dsw-specific-input-major);color:inherit;font:inherit;text-align:left;cursor:pointer}
+    .dpe-panel-quick svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+    .dpe-panel-quick:hover{background:var(--dsw-alias-interactive-bg-hover)}
+    .dpe-panel-quick:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:2px}
+    .dpe-panel-quick[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+    .dpe-panel-quick-text{display:grid;gap:1px;min-width:0}
+    .dpe-panel-quick-text span{font-size:13px}
+    .dpe-panel-quick-text small{overflow:hidden;color:var(--dsw-alias-label-secondary);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+    .dpe-quick-status-error{color:var(--dsw-alias-state-error-primary);font-weight:500}
+    .dpe-panel{box-sizing:border-box;position:fixed;z-index:60;display:grid;gap:10px;padding:13px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-specific-input-major);box-shadow:var(--dsw-elevation-panel);color:var(--dsw-alias-label-primary);overflow:auto;overscroll-behavior:contain;outline:none}
     .dpe-panel *{box-sizing:border-box}
     .dpe-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .dpe-title{margin:0;font-size:13px;font-weight:600;line-height:1.4}
+    .dpe-title{margin:0;font-size:14px;font-weight:600;line-height:1.4}
     .dpe-close{border:0;background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px}
-    .dpe-close:hover,.dpe-close:focus-visible{background:var(--dsw-alias-fill-secondary);outline:none}
-    .dpe-field{display:grid;gap:4px;font-size:12px}
-    .dpe-field select{min-width:0;width:100%;padding:7px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-specific-input-major);color:inherit;font:inherit}
-    .dpe-field small,.dpe-hint,.dpe-notice{font-size:11px;line-height:1.45;margin:0;color:var(--dsw-alias-label-secondary)}
+    .dpe-close:hover,.dpe-close:focus-visible{background:var(--dsw-alias-interactive-bg-hover);outline:none}
+    .dpe-field{display:grid;gap:5px;font-size:13px}
+    .dpe-field select{min-width:0;width:100%;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-specific-input-major);color:inherit;font:inherit;font-size:13px}
+    .dpe-field small,.dpe-hint,.dpe-notice{font-size:11.5px;line-height:1.45;margin:0;color:var(--dsw-alias-label-secondary)}
+    .dpe-preset-summary{padding:7px 8px;border-radius:7px;background:var(--dsw-alias-interactive-bg-hover)}
     .dpe-warn{color:var(--dsw-alias-state-warn-primary)}
-    .dpe-mode{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px;display:grid;gap:7px;font-size:12px;margin:0}
+    .dpe-mode{border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:9px;display:grid;gap:7px;font-size:13px;margin:0}
     .dpe-mode label{display:flex;gap:7px;align-items:center}
-    .dpe-save{justify-self:start;padding:6px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-fill-secondary);color:inherit;font:inherit;cursor:pointer}
+    .dpe-save{justify-self:start;padding:7px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-alias-interactive-bg-hover);color:inherit;font:inherit;font-size:13px;cursor:pointer}
     .dpe-save:disabled{opacity:.55;cursor:default}
     .dpe-link{border:0;background:transparent;color:var(--dsw-alias-label-primary);font:inherit;text-decoration:underline;cursor:pointer;padding:0 2px}
     .dpe-status,.dpe-error{font-size:12px;margin:0;line-height:1.45}
-    .dpe-error{color:var(--dsw-alias-state-danger-primary)}
+    .dpe-error{color:var(--dsw-alias-state-error-primary)}
+    .dpe-set{display:flex;flex-direction:column;gap:14px;max-width:640px;color:var(--dsw-alias-label-primary);font-size:13px}
+    .dpe-set-head h2{margin:0 0 6px;font-size:16px;font-weight:600;line-height:1.4}
+    .dpe-set-head p{margin:0;color:var(--dsw-alias-label-secondary);line-height:1.55}
+    .dpe-set-card{display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-specific-input-major)}
+    .dpe-set-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .dpe-set-card-head h3{margin:0;font-size:14px;font-weight:600;line-height:1.4}
+    .dpe-set-badge{padding:3px 7px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);font-size:11px;line-height:1;white-space:nowrap}
+    .dpe-set-badge-override{background:color-mix(in srgb,var(--dsw-alias-state-business-primary) 16%,transparent);color:var(--dsw-alias-state-business-primary)}
+    .dpe-set-hint{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+    .dpe-set-field{display:grid;gap:5px;font-size:12px}
+    .dpe-set-field select{width:100%;min-width:0;padding:8px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:var(--dsw-specific-input-major);color:inherit;font:inherit;font-size:13px}
+    .dpe-set-field select:disabled{opacity:.6}
+    .dpe-set-warn{margin:0;color:var(--dsw-alias-state-warn-primary);font-size:12px;line-height:1.5}
+    .dpe-set-error{margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5}
+    .dpe-set-status{margin:0;color:var(--dsw-alias-state-success-primary);font-size:12px;line-height:1.5}
+    .dpe-set-note{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5}
+    .dpe-set-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .dpe-set-primary{padding:7px 14px;border:0;border-radius:7px;background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-state-business-primary));color:var(--dsw-alias-label-primary-inverted,#fff);font:inherit;font-size:13px;cursor:pointer}
+    .dpe-set-primary:disabled{opacity:.5;cursor:not-allowed}
+    .dpe-set-secondary{padding:7px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:7px;background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer}
+    .dpe-set-secondary:disabled{opacity:.5;cursor:not-allowed}
+    .dpe-set-link{border:0;background:transparent;color:inherit;font:inherit;text-decoration:underline;cursor:pointer;padding:0 2px}
+    .dpe-set-dirty{color:var(--dsw-alias-state-warn-primary);font-size:12px}
+    @media (width<=760px){
+      .dpe-group-label{display:none}
+    }
+    @media (width<=560px){
+      .dpe-root{margin-left:4px;padding-left:4px}
+      .dpe-group-label{display:none}
+      .dpe-quick{display:none}
+      .dpe-more{margin-left:0;padding:5px 8px;border-left:0;border-radius:7px;color:var(--dsw-alias-label-primary)}
+      .dpe-group{gap:0;padding:1px}
+      .dpe-quick-panel{display:grid}
+      .dpe-quick-status{max-width:200px}
+    }
   `
   document.head.append(style)
   return () => style.remove()
@@ -683,6 +975,7 @@ export const inject = ['slots', 'locale', 'remote', 'remote.session']
 
 export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), `${PACKAGE_NAME}: dictionaries`)
+  ctx.effect(() => ctx.locale.register(SETTINGS_NS, settingsDictionaries), `${PACKAGE_NAME}: settings dictionaries`)
   ctx.effect(css, `${PACKAGE_NAME}: styles`)
   const disposeRemote = await ctx.remote.$mount(CLIENT_CONTRIBUTION)
   ctx.effect(() => disposeRemote, `${PACKAGE_NAME}: remote contribution`)
@@ -692,6 +985,27 @@ export async function apply(ctx: Context): Promise<void> {
 
   const remote = ctx.remote
   const loadCatalog = async (): Promise<ModelCatalog> => unwrap(await remote.session.modelCatalog())
+  const presets = new PresetStore()
+  const settingsT = ctx.locale.bind(SETTINGS_NS)
+
+  // Optional settings dependency: without Settings the panel keeps working and
+  // the shortcuts stay unavailable, so a minimal composition still loads.
+  ctx.inject(['configForms'], (forms) => {
+    const form = forms.configForms.get<PresetFormValue>(SETTINGS_ENTRY_ID)
+    const controller = new PresetController(form, presets)
+    forms.effect(() => () => { controller.dispose() }, `${PACKAGE_NAME}: preset subscription`)
+    forms.effect(() => forms.configForms.whileServed([SETTINGS_ENTRY_ID], () => (
+      forms.slots.inject('settings.section', () => forms.slots.register({
+        name: 'settings.section',
+        id: PACKAGE_NAME,
+        order: 55,
+        label: () => settingsT('nav'),
+        locale: SETTINGS_NS,
+        inject: () => ({ controller, loadCatalog }),
+      }, SettingsPage))
+    )), `${PACKAGE_NAME}: settings page`)
+  })
+
   ctx.slots.inject('conversation.plan-review.actions', () => ctx.slots.register({
     name: 'conversation.plan-review.actions',
     id: PACKAGE_NAME,
@@ -699,6 +1013,7 @@ export async function apply(ctx: Context): Promise<void> {
     inject: () => ({
       gateway,
       loadCatalog,
+      presets,
     }),
   }, PlanExecutionSlot))
 }

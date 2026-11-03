@@ -11,11 +11,21 @@
         --dsw-alias-label-primary: #e6e8ee;
         --dsw-alias-label-secondary: #9aa1b0;
         --dsw-alias-border-l1: #3a3f4b;
+        --dsw-alias-border-l2: #4b5160;
         --dsw-alias-fill-secondary: #2a2e38;
+        --dsw-alias-interactive-bg-hover: #2f3440;
         --dsw-specific-input-major: #23262e;
         --dsw-elevation-panel: 0 8px 24px rgba(0, 0, 0, 0.45);
         --dsw-alias-state-warn-primary: #e9b95f;
+        --dsw-alias-state-warn-tertiary: #3a3322;
         --dsw-alias-state-danger-primary: #ef6b6b;
+        --dsw-alias-state-error-primary: #ef6b6b;
+        --dsw-alias-state-success-primary: #6fcf97;
+        --dsw-alias-state-business-primary: #6a8dff;
+        --dsw-alias-button-primary-fill: #4f6ef7;
+        --dsw-alias-label-primary-inverted: #ffffff;
+        --dsw-focus-ring-width: 2px;
+        --dsw-focus-ring-color: #6a8dff;
       }
       body {
         margin: 0;
@@ -26,7 +36,7 @@
       }
       .clip {
         margin: 40px;
-        height: 84px;
+        height: 120px;
         overflow: hidden;
         border: 1px solid #3a3f4b;
         border-radius: 16px;
@@ -41,8 +51,28 @@
         color: #e9b95f;
       }
       .summary {
+        min-height: 140px;
         padding: 0 16px 16px;
         color: #c9ceda;
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+        min-width: 0;
+      }
+      .native-link {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #9aa1b0;
+        font: inherit;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .native-link:hover {
+        color: #e6e8ee;
       }
       #slot {
         display: flex;
@@ -54,8 +84,11 @@
     <main>
       <section class="clip" data-fixture-clip>
         <div class="strip">
-          <span>Plan awaiting review</span>
-          <div id="slot"></div>
+          <span>Plan review</span>
+          <div class="actions">
+            <button class="native-link" type="button">View full plan ›</button>
+            <div id="slot"></div>
+          </div>
         </div>
         <p class="summary">A fixed-height, overflow-hidden card mirrors the native plan-review panel.</p>
       </section>

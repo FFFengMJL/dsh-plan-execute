@@ -90,3 +90,70 @@ test('a pointer down outside the panel closes it', async ({ page }) => {
   await page.mouse.click(20, 560)
   await expect(panel(page)).toBeHidden()
 })
+
+test('the preset group stages a saved target without approving it', async ({ page }) => {
+  await page.goto('/')
+  const group = page.getByRole('group', { name: 'Presets' })
+  await expect(group).toBeVisible()
+
+  const compact = page.getByRole('button', { name: /Compact, then run/ })
+  await expect(compact).toHaveAttribute('aria-disabled', 'false')
+  const styles = await compact.evaluate(element => {
+    const style = getComputedStyle(element)
+    return { fontSize: Number.parseFloat(style.fontSize) }
+  })
+  expect(styles.fontSize).toBeGreaterThanOrEqual(12)
+  const border = await group.evaluate(element => getComputedStyle(element).borderTopWidth)
+  expect(Number.parseFloat(border)).toBeGreaterThan(0)
+
+  await compact.click()
+  await expect(page.getByText(/Staged: compact history, then execute/)).toBeVisible()
+  const staged = await page.evaluate(() => (window as unknown as { __fixture: { lastStage: unknown } }).__fixture.lastStage)
+  expect(staged).toMatchObject({
+    mode: 'compact',
+    selection: { provider: 'p', model: 'm3' },
+  })
+  await page.screenshot({ path: 'test/browser/artifacts/panel-presets.png' })
+})
+
+test('the preset group stays inside a narrow viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 })
+  await page.goto('/')
+  const group = page.getByRole('group', { name: 'Presets' })
+  await expect(group).toBeVisible()
+  await expect(page.locator('.dpe-quick').first()).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Execution options', exact: true })).toBeVisible()
+
+  const box = await group.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(360)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+
+  await page.getByRole('button', { name: 'Execution options', exact: true }).click()
+  const dialog = panel(page)
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /Compact, then run/ })).toBeVisible()
+  await dialog.getByRole('button', { name: /Compact, then run/ }).click()
+  await expect(dialog.getByText('Saved; waiting for approval')).toBeVisible()
+  const staged = await page.evaluate(() => (window as unknown as { __fixture: { lastStage: unknown } }).__fixture.lastStage)
+  expect(staged).toMatchObject({ mode: 'compact', selection: { provider: 'p', model: 'm3' } })
+  await page.screenshot({ path: 'test/browser/artifacts/panel-presets-narrow.png' })
+})
+
+test('the preset group stays legible in a narrower card', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 600 })
+  await page.goto('/')
+  const group = page.getByRole('group', { name: 'Presets' })
+  await expect(group).toBeVisible()
+  const more = page.getByRole('button', { name: 'Execution options', exact: true })
+  await expect(more).toContainText('Options')
+  await expect(page.getByRole('button', { name: /Compact, then run/ })).toBeVisible()
+
+  const groupBox = await group.boundingBox()
+  const stripBox = await page.locator('.strip').boundingBox()
+  expect(groupBox).not.toBeNull()
+  expect(stripBox).not.toBeNull()
+  expect(groupBox!.x + groupBox!.width).toBeLessThanOrEqual(stripBox!.x + stripBox!.width)
+  await page.screenshot({ path: 'test/browser/artifacts/panel-presets-medium.png' })
+})
