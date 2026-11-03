@@ -42,7 +42,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 从 [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases) 下载 tarball 后安装到指定 profile：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.0.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.1.tgz
 ```
 
 本地开发可先构建，再用 link 安装：
@@ -75,7 +75,7 @@ dsh plugin --profile web remove dsh-plan-execute
 Download the tarball from [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases), then install it into a profile:
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.0.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.1.tgz
 ```
 
 For local development, build first and link the checkout:
