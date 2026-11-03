@@ -11,10 +11,12 @@ import {
   parseModelKey,
 } from './model-catalog.js'
 import {
+  presetEquals,
   presetVerdict,
   type ExecutionPreset,
   type PresetController,
   type PresetDraft,
+  type PresetKind,
 } from './presets.js'
 import { useModelCatalog } from './use-catalog.js'
 
@@ -32,9 +34,13 @@ const zhSettings = {
   'model': '执行模型',
   'effort': '思考等级',
   'unconfigured': '未配置（快捷按钮不可用）',
+  'useInherited': '使用继承值',
+  'pinnedInherited': '继承值已固定',
   'defaultEffort': '使用模型默认值',
   'effortUnsupported': '该模型不支持调节思考等级。',
   'overridden': '已覆盖',
+  'overriddenSame': '已覆盖（同继承值）',
+  'overriddenSameHint': '清除会把当前继承值固定到 profile，而不是恢复真正的层继承。',
   'inherited': '继承',
   'loading': '正在读取设置…',
   'catalogLoading': '正在读取可用模型…',
@@ -43,7 +49,7 @@ const zhSettings = {
   'retry': '重试',
   'unavailable': '该部署未提供计划审批执行设置。',
   'readOnly': '本部署的设置只读。',
-  'sharedNote': '这些预设写入当前 profile，并与使用同一 profile 的其他浏览器共享。继承的预设不能在此清除；修改会写入当前 profile 的覆盖。',
+  'sharedNote': '这些预设写入当前 profile，并与使用同一 profile 的其他浏览器共享。继承的预设不能在此清除；清除覆盖时 RC5 会把当前继承值固定到 profile，而不是恢复真正的层继承。',
   'save': '保存预设',
   'saving': '正在保存…',
   'discard': '放弃更改',
@@ -52,6 +58,7 @@ const zhSettings = {
   'conflict': '设置已在其他位置更新；当前草稿尚未保存，请检查后重试。',
   'failed': '设置未被接受；草稿已保留。',
   'invalid': '请选择一个当前可用的模型和思考等级。',
+  'catalogRequiredForSave': '模型目录不可用，无法校验本次修改；清除预设不需要模型目录。',
   'staleModel': '已保存但当前不可用',
   'staleHint': '宿主中的已保存值已变化；保存会用当前草稿覆盖它们。',
 } as const
@@ -67,9 +74,13 @@ const enSettings: Record<keyof typeof zhSettings, string> = {
   'model': 'Execution model',
   'effort': 'Reasoning effort',
   'unconfigured': 'Not configured (shortcut unavailable)',
+  'useInherited': 'Use inherited value',
+  'pinnedInherited': 'Inherited value pinned',
   'defaultEffort': 'Use model default',
   'effortUnsupported': 'This model does not provide adjustable reasoning effort.',
   'overridden': 'Overridden',
+  'overriddenSame': 'Overridden (same as inherited)',
+  'overriddenSameHint': 'Clearing pins the current inherited value into the profile instead of restoring layer inheritance.',
   'inherited': 'Inherited',
   'loading': 'Loading settings…',
   'catalogLoading': 'Loading available models…',
@@ -78,7 +89,7 @@ const enSettings: Record<keyof typeof zhSettings, string> = {
   'retry': 'Retry',
   'unavailable': 'This deployment does not provide plan approval execution settings.',
   'readOnly': 'This deployment stores settings read-only.',
-  'sharedNote': 'These presets are written to the current profile and shared with other browsers using it. An inherited preset cannot be cleared here; editing it writes an override in this profile.',
+  'sharedNote': 'These presets are written to the current profile and shared with other browsers using it. An inherited preset cannot be cleared here; clearing an override pins the current inherited value into the profile instead of restoring layer inheritance.',
   'save': 'Save presets',
   'saving': 'Saving…',
   'discard': 'Discard changes',
@@ -87,6 +98,7 @@ const enSettings: Record<keyof typeof zhSettings, string> = {
   'conflict': 'Settings changed elsewhere; the current draft was not saved. Review it and try again.',
   'failed': 'The deployment did not accept these values; the draft was kept.',
   'invalid': 'Choose a model and reasoning effort that are currently available.',
+  'catalogRequiredForSave': 'The model catalog is unavailable, so this change cannot be validated; clearing a preset does not require it.',
   'staleModel': 'Saved, currently unavailable',
   'staleHint': 'The saved Host values changed; saving will replace them with this draft.',
 }
@@ -114,7 +126,7 @@ export type SettingsPageProps = PropsRuntime<'settings.section'>
   & PropsLocale<typeof SETTINGS_NS>
   & SettingsInjected
 
-type Kind = 'compact' | 'switch'
+type Kind = PresetKind
 
 function kindTitle(t: Translator, kind: Kind): string {
   return t(kind === 'compact' ? 'compactTitle' : 'switchTitle')
@@ -128,13 +140,15 @@ interface PresetCardProps {
   readonly t: Translator
   readonly kind: Kind
   readonly preset: ExecutionPreset | null
+  readonly inherited: ExecutionPreset | null
   readonly overridden: boolean
+  readonly pinned: boolean
   readonly catalog: ModelCatalog | null
   readonly disabled: boolean
   readonly onChange: (preset: ExecutionPreset | null) => void
 }
 
-function PresetCard({ t, kind, preset, overridden, catalog, disabled, onChange }: PresetCardProps) {
+function PresetCard({ t, kind, preset, inherited, overridden, pinned, catalog, disabled, onChange }: PresetCardProps) {
   const model = preset === null ? undefined : findModel(catalog, preset.provider, preset.model)
   const levels = effortLevels(model)
   const staleModel = preset !== null && model === undefined
@@ -169,15 +183,22 @@ function PresetCard({ t, kind, preset, overridden, catalog, disabled, onChange }
     <section className="dpe-set-card" aria-labelledby={`dpe-set-${kind}`}>
       <div className="dpe-set-card-head">
         <h3 id={`dpe-set-${kind}`}>{kindTitle(t, kind)}</h3>
-        <span className={overridden ? 'dpe-set-badge dpe-set-badge-override' : 'dpe-set-badge'}>
-          {overridden ? t('overridden') : t('inherited')}
+        <span
+          className={overridden ? 'dpe-set-badge dpe-set-badge-override' : 'dpe-set-badge'}
+          title={pinned ? t('overriddenSameHint') : undefined}
+        >
+          {overridden ? (pinned ? t('overriddenSame') : t('overridden')) : t('inherited')}
         </span>
       </div>
       <p className="dpe-set-hint">{kindHint(t, kind)}</p>
       <label className="dpe-set-field">
         <span>{t('model')}</span>
         <select value={preset === null ? '' : modelKey(preset)} disabled={disabled} onChange={event => { changeModel(event.currentTarget.value) }}>
-          <option value="" disabled={preset !== null && !overridden}>{t('unconfigured')}</option>
+          {!overridden && preset !== null ? null : (
+            <option value="" disabled={pinned}>
+              {pinned ? t('pinnedInherited') : overridden && inherited !== null ? t('useInherited') : t('unconfigured')}
+            </option>
+          )}
           {catalog?.groups.map(group => (
             <optgroup key={group.id} label={group.name}>
               {group.models.map(entry => (
@@ -226,6 +247,7 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
   const catalog = catalogState.catalog
 
   const [draft, setDraft] = useState<PresetDraft | null>(null)
+  const [edited, setEdited] = useState<ReadonlySet<Kind>>(() => new Set())
   const [dirty, setDirty] = useState(false)
   const [fence, setFence] = useState<number | undefined>(undefined)
   const [stale, setStale] = useState(false)
@@ -235,13 +257,23 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
   useEffect(() => {
     if (view.status !== 'ready') return
     if (dirty) {
-      if (fence !== undefined && view.revision !== undefined && view.revision !== fence) setStale(true)
+      if (fence !== undefined && view.revision !== undefined && view.revision !== fence) {
+        setStale(true)
+        // Keep untouched cards current while preserving the edited draft. The
+        // old fence still makes the next write conflict rather than silently
+        // overwriting the other editor.
+        setDraft(current => current === null ? current : {
+          compact: edited.has('compact') ? current.compact : view.presets.compact,
+          switch: edited.has('switch') ? current.switch : view.presets.switch,
+        })
+      }
       return
     }
     setDraft(view.presets)
     setFence(view.revision)
     setStale(false)
-  }, [dirty, fence, view])
+    setEdited(previous => previous.size === 0 ? previous : new Set())
+  }, [dirty, edited, fence, view])
 
   const refresh = catalogState.retry
 
@@ -250,6 +282,7 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
       const base = current ?? view.presets
       return { ...base, [kind]: preset }
     })
+    setEdited(previous => previous.has(kind) ? previous : new Set(previous).add(kind))
     setDirty(true)
     setMessage(null)
   }, [view.presets])
@@ -257,6 +290,7 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
   const discard = useCallback((): void => {
     setDraft(view.presets)
     setDirty(false)
+    setEdited(new Set())
     setFence(view.revision)
     setStale(false)
     setMessage(null)
@@ -264,8 +298,21 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
 
   const save = useCallback(async (): Promise<void> => {
     if (busy || draft === null || view.status !== 'ready' || !view.writable) return
+    const latest = store.getSnapshot()
+    const next: PresetDraft = {
+      compact: edited.has('compact') ? draft.compact : latest.presets.compact,
+      switch: edited.has('switch') ? draft.switch : latest.presets.switch,
+    }
     for (const kind of ['compact', 'switch'] as const) {
-      if (presetVerdict(catalog, draft[kind]) !== 'ok' && draft[kind] !== null) {
+      // Only an actually changed, configured target needs catalog validation.
+      // Clearing an override and untouched values must not be blocked by a
+      // temporary catalog failure.
+      if (!edited.has(kind) || next[kind] === null || presetEquals(next[kind], latest.presets[kind])) continue
+      if (catalog === null) {
+        setMessage({ level: 'error', text: t('catalogRequiredForSave') })
+        return
+      }
+      if (presetVerdict(catalog, next[kind]) !== 'ok') {
         setMessage({ level: 'error', text: t('invalid') })
         return
       }
@@ -273,15 +320,23 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
     setBusy(true)
     setMessage(null)
     try {
-      const outcome = await controller.save(draft, fence)
+      const outcome = await controller.save(next, fence, edited)
       if (outcome === 'saved' || outcome === 'unchanged') {
         setDirty(false)
+        setEdited(new Set())
         setMessage({ level: 'ok', text: t('saved') })
         return
       }
       if (outcome === 'conflict') {
+        const recovered = store.getSnapshot()
         setStale(true)
-        setFence(store.getSnapshot().revision)
+        setFence(recovered.revision)
+        // Preserve only what this user edited; untouched cards adopt the
+        // recovered values so a retry cannot overwrite another editor.
+        setDraft(current => current === null ? current : {
+          compact: edited.has('compact') ? current.compact : recovered.presets.compact,
+          switch: edited.has('switch') ? current.switch : recovered.presets.switch,
+        })
         setMessage({ level: 'warn', text: t('conflict') })
         return
       }
@@ -289,11 +344,15 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
     } finally {
       setBusy(false)
     }
-  }, [busy, catalog, controller, draft, fence, store, t, view.status, view.writable])
+  }, [busy, catalog, controller, draft, edited, fence, store, t, view.status, view.writable])
 
   const configurable = view.status === 'ready'
   const disabled = busy || !view.writable || !configurable
   const effective = draft ?? view.presets
+  const pinned = (kind: Kind): boolean => {
+    const inherited = view.inherited[kind]
+    return view.overridden[kind] && inherited !== null && presetEquals(view.presets[kind], inherited)
+  }
   const duration = catalogState.phase
 
   const catalogNote = useMemo(() => {
@@ -335,7 +394,9 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
             t={t}
             kind="compact"
             preset={effective.compact}
+            inherited={view.inherited.compact}
             overridden={view.overridden.compact}
+            pinned={pinned('compact')}
             catalog={catalog}
             disabled={disabled}
             onChange={preset => { edit('compact', preset) }}
@@ -344,7 +405,9 @@ export function SettingsPage({ controller, loadCatalog, t }: SettingsPageProps) 
             t={t}
             kind="switch"
             preset={effective.switch}
+            inherited={view.inherited.switch}
             overridden={view.overridden.switch}
+            pinned={pinned('switch')}
             catalog={catalog}
             disabled={disabled}
             onChange={preset => { edit('switch', preset) }}

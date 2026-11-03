@@ -600,6 +600,8 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
     kind === 'compact' ? presetView.presets.compact : presetView.presets.switch
   )
 
+  // Blocked shortcuts stay focusable under aria-disabled so activating one can
+  // explain the reason; quickStage never stages in that branch.
   const quickBlock = (kind: 'compact' | 'keep'): Key | null => {
     if (!hasCall) return 'noCall'
     if (presetView.status !== 'ready') return 'quickPresetUnavailable'
@@ -684,6 +686,7 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
           className="dpe-panel-quick"
           aria-disabled={compactBlocked !== null}
           title={quickTitle('compact')}
+          aria-label={`${translate(t, 'quickCompact')}: ${quickTitle('compact')}`}
           onClick={() => { void quickStage('compact') }}
         >
           <CompactIcon />
@@ -697,6 +700,7 @@ function PlanExecutionOptions(props: PlanExecutionProps) {
           className="dpe-panel-quick"
           aria-disabled={keepBlocked !== null}
           title={quickTitle('keep')}
+          aria-label={`${translate(t, 'quickKeep')}: ${quickTitle('keep')}`}
           onClick={() => { void quickStage('keep') }}
         >
           <KeepIcon />

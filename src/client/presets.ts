@@ -27,12 +27,17 @@ export interface PresetDraft {
   readonly switch: ExecutionPreset | null
 }
 
+/** One editable shortcut target. */
+export type PresetKind = 'compact' | 'switch'
+
+const ALL_PRESETS: ReadonlySet<PresetKind> = new Set(['compact', 'switch'])
+
 /** Snapshot of the persisted plan-approval presets. */
 export interface PresetView {
   readonly status: 'loading' | 'ready' | 'unavailable'
   /** Effective values: profile override, inherited layer, or absent. */
   readonly presets: PresetDraft
-  /** Values that applying a clear would restore, for the settings page. */
+  /** Values supplied by the inherited layer; clearing uses these (RC5 pins them when present). */
   readonly inherited: PresetDraft
   readonly overridden: { readonly compact: boolean; readonly switch: boolean }
   readonly writable: boolean
@@ -84,7 +89,8 @@ export function normalizeDraft(value: unknown): PresetDraft {
   }
 }
 
-function samePreset(left: ExecutionPreset | null, right: ExecutionPreset | null): boolean {
+/** Compare two normalized presets, including the optional effort. */
+export function presetEquals(left: ExecutionPreset | null, right: ExecutionPreset | null): boolean {
   if (left === null || right === null) return left === right
   return left.provider === right.provider
     && left.model === right.model
@@ -92,7 +98,7 @@ function samePreset(left: ExecutionPreset | null, right: ExecutionPreset | null)
 }
 
 function sameDraft(left: PresetDraft, right: PresetDraft): boolean {
-  return samePreset(left.compact, right.compact) && samePreset(left.switch, right.switch)
+  return presetEquals(left.compact, right.compact) && presetEquals(left.switch, right.switch)
 }
 
 function sameView(left: PresetView, right: PresetView): boolean {
@@ -161,6 +167,7 @@ export class PresetController {
   readonly #store: PresetStore
   readonly #unsubscribe: () => void
   #last: PresetView | undefined
+  #disposed = false
 
   constructor(form: ConfigForm<PresetFormValue>, store: PresetStore) {
     this.#form = form
@@ -174,33 +181,47 @@ export class PresetController {
   }
 
   refresh(): void {
+    if (this.#disposed) return
     const next = project(this.#form.getSnapshot())
     if (this.#last !== undefined && sameView(this.#last, next)) return
     this.#last = next
     this.#store.publish(next)
   }
 
-  /** Release this consumer's subscription; the provider still owns the form. */
+  /** Release this consumer's subscription and stop offering the last snapshot. */
   dispose(): void {
+    if (this.#disposed) return
+    this.#disposed = true
     this.#unsubscribe()
+    // A form that disappears (HMR or a removed Settings plugin) must not leave
+    // the quick actions validating against a stale ready snapshot.
+    this.#store.publish(UNAVAILABLE)
   }
 
   /**
-   * Write only the presets that differ from the accepted values. A `null` draft
-   * clears the profile override, restoring the inherited value.
+   * Write only the presets the user actually edited. A `null` draft asks the
+   * Host to unset an existing override; RC5 then pins the inherited value when
+   * a lower layer supplies one.
    *
    * @param draft - complete next state of both shortcuts.
    * @param expectedRevision - revision read when editing began. A write fenced
    * to an older revision is refused instead of overwriting another editor.
+   * @param edited - targets changed by this user; untouched targets are never
+   * written, so a conflict retry cannot overwrite another editor's change.
    */
-  async save(draft: PresetDraft, expectedRevision?: number): Promise<PresetSaveOutcome> {
+  async save(
+    draft: PresetDraft,
+    expectedRevision?: number,
+    edited: ReadonlySet<PresetKind> = ALL_PRESETS,
+  ): Promise<PresetSaveOutcome> {
+    if (this.#disposed) return 'failed'
     const view = this.#store.getSnapshot()
     if (view.status !== 'ready') return 'failed'
 
     const ops: SettingsPathOpView[] = []
     const add = (
       key: typeof COMPACT_KEY | typeof SWITCH_KEY,
-      kind: 'compact' | 'switch',
+      kind: PresetKind,
       next: ExecutionPreset | null,
     ): void => {
       const current = view.presets[kind]
@@ -208,7 +229,7 @@ export class PresetController {
         if (view.overridden[kind]) ops.push({ op: 'unset', path: [key] })
         return
       }
-      if (samePreset(next, current)) return
+      if (presetEquals(next, current)) return
       ops.push({
         op: 'set',
         path: [key],
@@ -219,8 +240,8 @@ export class PresetController {
         },
       })
     }
-    add(COMPACT_KEY, 'compact', normalizePreset(draft.compact))
-    add(SWITCH_KEY, 'switch', normalizePreset(draft.switch))
+    if (edited.has('compact')) add(COMPACT_KEY, 'compact', normalizePreset(draft.compact))
+    if (edited.has('switch')) add(SWITCH_KEY, 'switch', normalizePreset(draft.switch))
 
     if (ops.length === 0) return 'unchanged'
     const fence = expectedRevision ?? view.revision

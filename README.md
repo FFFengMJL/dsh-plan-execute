@@ -17,7 +17,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - 思考等级按模型记忆在当前审核表单内；只有用户显式选择时才提交 `reasoningEffort`，“使用模型默认值”表示省略该字段。切换回某模型时，仅当该档位仍受最新目录支持才恢复。
 - 执行选项面板通过 portal 挂载到页面浮层，不修改原生审批卡片样式；面板受视口约束并可在内部滚动，支持关闭按钮、Escape、外部点击关闭和焦点返回。
 - 设置页“计划审批执行”保存两套独立预设：压缩历史后执行的模型/思考等级，以及保留历史后执行的模型/思考等级。预设写入当前 profile；未配置时对应快捷按钮明确不可用，不会猜测模型。
-- 审核卡片顶部提供“按预设”快捷按钮。它们只**暂存**对应模式与预设，仍需点击原生“同意执行”按钮；不会模拟点击、自动批准或绕过原生批准。设置变更后用 `unset` 清除覆盖并恢复继承值；冲突时保留草稿，不假报保存成功。
+- 审核卡片顶部提供“按预设”快捷按钮。它们只**暂存**对应模式与预设，仍需点击原生“同意执行”按钮；不会模拟点击、自动批准或绕过原生批准。设置变更后用 `unset` 使字段改用继承值；RC5 在继承层有值时会把这个值固定到 profile。冲突时保留草稿，且只重试用户实际编辑的预设，不会覆盖另一项。
 - 窄屏下快捷按钮收进“选项”面板，以完整文字和模型名展示；桌面端保留分组按钮，并通过边框、间距、图标和更大的字号与原生“查看全文”区分。不会覆写或移动原生审批区域。
 - 原生“要求修改”在 DSH RC5 中会以 `ASK_CANCELLED` 结束计划审批，而不是隐藏卡片；公开的 `userQuestionPanels.reveal()` 没有可恢复的卡片，插件也不会伪造审批或从历史重建可执行请求。因此本版不提供 `/review-plan`；真正的“隐藏后恢复”需要上游 DSH 提供稳定的审批 `wait.callId` 或 reopen API。
 - 进度和暂存设置是进程内状态；插件卸载或进程重启后不会自动恢复或继续执行。用户需要重新呈现/审核计划。
@@ -31,7 +31,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - Reasoning effort is remembered per model within the current review form. `reasoningEffort` is only sent after an explicit choice; “Use model default” omits it. Switching back to a model restores the effort only while the latest catalog still advertises it.
 - The options panel is rendered through a portal instead of restyling the native approval card. It is viewport-clamped, scrolls internally, and supports a close button, Escape, outside clicks, and focus return.
 - The Settings page “Plan approval execution” saves two independent presets: a model/effort for “compact history, then execute” and one for “keep history, then execute”. Presets are written to the active profile. A shortcut without a preset is explicitly unavailable rather than guessing a model.
-- “Presets” shortcuts at the top of the review card only **stage** the mode and saved target; the native Approve button still executes. They never simulate that button, auto-approve, or bypass the native flow. Clearing an override writes `unset` to restore the inherited value; conflicts keep the draft instead of claiming success.
+- “Presets” shortcuts at the top of the review card only **stage** the mode and saved target; the native Approve button still executes. They never simulate that button, auto-approve, or bypass the native flow. Clearing an override writes `unset` to use the inherited value; RC5 pins that value into the profile when a lower layer supplies one. Conflicts keep the draft, retry only presets the user actually edited, and never overwrite the other preset.
 - On narrow screens the shortcuts collapse into the “presets” panel with full labels and model names; on desktop they stay a bordered, spaced, icon-labelled group that is clearly distinct from the native “View full plan” link. Native approval chrome is never restyled or moved.
 - In DSH RC5, the native “Request changes” action ends the plan review with `ASK_CANCELLED`; it does not merely hide the card. The public `userQuestionPanels.reveal()` then has no card to restore, and the plugin will not fake an approval or rebuild an executable request from history. This release therefore does not ship `/review-plan`; true hide-and-restore needs an upstream DSH change (a stable approval `wait.callId` or a reopen API).
 - Staged settings and progress are process-local. They are not resumed after plugin unload or process restart; the plan must be presented and reviewed again.
@@ -62,7 +62,7 @@ dsh plugin --profile web remove dsh-plan-execute
 
 `dsh plugin` 只负责 profile 的依赖与 bundle 登记；运行中的 DSH 是否加载新客户端代码取决于其重载机制。没有开发 watcher 时，需要重新加载或重启对应 profile，不能仅凭 `package.json` 已登记就认定运行中实例已加载。
 
-先打开“设置 → 计划审批执行”，为两种执行方式各保存一套预设（模型 + 可选思考等级）。未配置的快捷按钮不可用；覆盖的预设可以清除以恢复继承值，继承值需在来源层修改。
+先打开“设置 → 计划审批执行”，为两种执行方式各保存一套预设（模型 + 可选思考等级）。未配置的快捷按钮不可用；覆盖的预设可以清除以使用继承值（RC5 会把该值固定到 profile），继承的预设不能在此清除，需在来源层修改。
 
 在计划审核卡片中使用快捷按钮：
 
@@ -95,7 +95,7 @@ dsh plugin --profile web remove dsh-plan-execute
 
 `dsh plugin` manages the profile's dependency and bundle registration. Whether a running DSH loads the new client code depends on its reload mechanism; without a development watcher, reload or restart the profile. A registered dependency does not prove the running instance loaded it.
 
-First open Settings → Plan approval execution and save one preset for each execution style (a model plus an optional reasoning effort). A shortcut without a preset is unavailable; clearing an override restores the inherited value, while an inherited value must be changed at its source layer.
+First open Settings → Plan approval execution and save one preset for each execution style (a model plus an optional reasoning effort). A shortcut without a preset is unavailable; clearing an override uses the inherited value (RC5 pins that value into the profile), while an inherited preset cannot be cleared here and must be changed at its source layer.
 
 In the plan-review card:
 
@@ -151,7 +151,7 @@ pnpm exec playwright install --only-shell chromium
 测试层级与证据边界：
 
 - Vitest 覆盖审批门控、失败关闭、取消、生命周期、模型目录纯函数、真实 RC5 `Session` + Compaction 工具配对，以及完整审批场景（真实会话、真实范围计算、可控摘要替身）；审批门控仍是唯一可放行计划的路径。
-- jsdom + Testing Library 覆盖模型目录状态、按模型思考等级、保存请求、非终态轮询、portal 与关闭/焦点行为；同时覆盖两套预设的草稿、`set`/`unset` 写入、revision 冲突、只读与目录失败，以及快捷按钮的预设暂存、未配置/模型失效禁用。
+- jsdom + Testing Library 覆盖模型目录状态、按模型思考等级、保存请求、非终态轮询、portal 与关闭/焦点行为；同时覆盖两套预设的草稿、`set`/`unset` 写入、冲突重试隔离、目录不可用时清除、继承值固定、只读与目录失败，以及快捷按钮的预设暂存、未配置/模型失效禁用。
 - Playwright fixture 在真实 Chromium 中复现 `overflow:hidden` 审批容器，验证面板不被裁剪、受视口约束、短视口可滚动、窄屏无横向溢出、桌面快捷按钮分组和窄屏“选项”面板。fixture 使用模拟 remote，不代表真实 DSH GUI 已验证。
 - 真实 DSH Web GUI、正式 Compaction 摘要后端和真实服务商模型调用没有在自动测试中运行；这些仍需单独的人工或隔离 profile 验收。
 
@@ -166,7 +166,7 @@ pnpm exec playwright install --only-shell chromium
 Evidence boundaries:
 
 - Vitest covers the approval gate, fail-closed paths, cancellation, lifecycle, catalog helpers, the real RC5 `Session` + Compaction pairing helpers, and a full approval scenario (real Session, real range calculation, controllable summary stand-in); the approval gate remains the only path that can release a plan.
-- jsdom + Testing Library covers catalog states, per-model reasoning effort, save payloads, non-terminal polling, and portal/close/focus behavior; it also covers both preset drafts, `set`/`unset` writes, revision conflicts, read-only and catalog failures, and shortcut staging for configured, unconfigured, and stale presets.
+- jsdom + Testing Library covers catalog states, per-model reasoning effort, save payloads, non-terminal polling, and portal/close/focus behavior; it also covers both preset drafts, `set`/`unset` writes, conflict-retry isolation, clearing while the catalog is unavailable, inherited-value pinning, read-only and catalog failures, and shortcut staging for configured, unconfigured, and stale presets.
 - The Playwright fixture reproduces an `overflow:hidden` approval container in headless Chromium and verifies the panel escapes clipping, stays inside the viewport, scrolls in short viewports, and does not overflow horizontally; it also checks the desktop shortcut group and the narrow-screen preset panel. It uses a simulated remote and is not live DSH GUI validation.
 - The live DSH Web GUI, the production compaction summarizer, and real provider model calls are not exercised by automated tests; they still need separate manual or isolated-profile acceptance.
 
