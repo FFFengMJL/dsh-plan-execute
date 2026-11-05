@@ -122,6 +122,26 @@ describe('plan approval gate', () => {
     expect((h3.gateway as unknown as { activeReviews: Map<string, unknown> }).activeReviews.size).toBe(0)
   })
 
+  it('leaves a blocking approval intent to the native flow', async () => {
+    const h = harness()
+    const answer: AskUserQuestionAnswer = { answers: [{ id: 'permission', selected: ['Allow'] }] }
+    const request = {
+      agent: h.agent,
+      questions: [{
+        id: 'permission',
+        question: 'Allow this command?',
+        options: [{ label: 'Allow' }, { label: 'Deny' }],
+        intent: { kind: 'approval', approve: 'Allow', reject: 'Deny' },
+      }],
+    } as unknown as AskUserQuestionRequest
+    const next = vi.fn(async () => answer)
+
+    await expect(h.gate(next, request)).resolves.toEqual(answer)
+    expect(next).toHaveBeenCalledTimes(1)
+    expect((h.gateway as unknown as { activeReviews: Map<string, unknown> }).activeReviews.size).toBe(0)
+    await expect(h.gateway.stageApproval(h.stage())).rejects.toThrow('REVIEW_NOT_ACTIVE')
+  })
+
   it('cleans the active review and idempotency entry when the native answerer rejects', async () => {
     const h = harness()
     await expect(h.gate(async () => {

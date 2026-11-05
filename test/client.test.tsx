@@ -287,6 +287,15 @@ describe('execution options client', () => {
     expect(screen.getByText(/currentEffort/)).toBeTruthy()
   })
 
+  it('falls back to the last used model when the pending selection is retired', async () => {
+    await mount({
+      projection: { next: null, lastUsed: { provider: 'p', model: 'm1', reasoningEffort: 'high' } },
+    })
+    await openPanel()
+    expect(await screen.findByText(/currentModel.*Provider P \/ Model One/)).toBeTruthy()
+    expect(screen.getByText(/currentEffort.*High/)).toBeTruthy()
+  })
+
   it('closes on Escape, on outside pointer down, and restores trigger focus', async () => {
     await mount()
     const trigger = screen.getByRole('button', { name: 'options' })

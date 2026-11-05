@@ -4,7 +4,7 @@ import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-a
 import { compactableRangeBeforePendingBatch } from '../src/range.js'
 
 /*
- * These cases exercise the real RC5 Session log and the real Compaction
+ * These cases exercise the real DSH Session log and the real Compaction
  * tool-pairing helpers. They intentionally avoid message constructors from
  * `@deepseek-ai/dsh-llm`: the persisted message shape is the contract the
  * helpers read, and `Session.append` validates it at the boundary.

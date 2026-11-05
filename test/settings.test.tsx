@@ -68,9 +68,10 @@ class FakeForm {
     for (const op of ops) {
       const key = op.path[0]!
       if (op.op === 'unset') {
-        // RC5 resolves an unset against the inherited layer. If that layer
-        // supplies a value, the Host writes it into the user layer instead of
-        // deleting the key, so the field remains overridden.
+        // The current implementation resolves an unset against the inherited
+        // layer. If that layer supplies a value, the Host writes it into the
+        // user layer instead of deleting the key, so the field remains
+        // overridden.
         if (base[key] === undefined) {
           delete value[key]
           delete user[key]
