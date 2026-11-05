@@ -37,7 +37,7 @@ export interface PresetView {
   readonly status: 'loading' | 'ready' | 'unavailable'
   /** Effective values: profile override, inherited layer, or absent. */
   readonly presets: PresetDraft
-  /** Values supplied by the inherited layer; clearing uses these (RC5 pins them when present). */
+  /** Values supplied by the inherited layer; clearing uses these (the current implementation pins them when present). */
   readonly inherited: PresetDraft
   readonly overridden: { readonly compact: boolean; readonly switch: boolean }
   readonly writable: boolean
@@ -200,8 +200,8 @@ export class PresetController {
 
   /**
    * Write only the presets the user actually edited. A `null` draft asks the
-   * Host to unset an existing override; RC5 then pins the inherited value when
-   * a lower layer supplies one.
+   * Host to unset an existing override; the current implementation then pins
+   * the inherited value when a lower layer supplies one.
    *
    * @param draft - complete next state of both shortcuts.
    * @param expectedRevision - revision read when editing began. A write fenced

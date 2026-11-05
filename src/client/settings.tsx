@@ -49,7 +49,7 @@ const zhSettings = {
   'retry': '重试',
   'unavailable': '该部署未提供计划审批执行设置。',
   'readOnly': '本部署的设置只读。',
-  'sharedNote': '这些预设写入当前 profile，并与使用同一 profile 的其他浏览器共享。继承的预设不能在此清除；清除覆盖时 RC5 会把当前继承值固定到 profile，而不是恢复真正的层继承。',
+  'sharedNote': '这些预设写入当前 profile，并与使用同一 profile 的其他浏览器共享。继承的预设不能在此清除；清除覆盖时会把当前继承值固定到 profile，而不是恢复真正的层继承。',
   'save': '保存预设',
   'saving': '正在保存…',
   'discard': '放弃更改',
