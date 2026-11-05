@@ -4,8 +4,8 @@
 
 - 本仓库是 DSH 计划审核扩展：Host 入口在 [`src/index.ts`](<src/index.ts>)，Web client 在 [`src/client/index.tsx`](<src/client/index.tsx>)；面向使用者的说明见 [`README.md`](README.md)。
 - The Host entry is [`src/index.ts`](<src/index.ts>); the Web client is [`src/client/index.tsx`](<src/client/index.tsx>). User-facing behavior is documented in [`README.md`](README.md).
-- 首版目标是 DSH `0.2.1-rc.5`。不要把依赖范围扩到其他 Host 版本，除非逐项核对并测试相应 API。
-- The first version targets DSH `0.2.1-rc.5`. Do not widen Host compatibility without checking and testing the consumed APIs.
+- 当前只支持 DSH `0.2.2-rc.1`；DSH 依赖在 [`package.json`](<package.json>) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。0.2.1-rc.5 用户继续使用已发布的 `v0.2.1`。不要把依赖范围扩到其他 Host 版本，除非逐项核对并测试相应 API。
+- The current support target is DSH `0.2.2-rc.1`; DSH dependencies are pinned exactly in [`package.json`](<package.json>), with Cordis and Schemastery pinned to their verified minor lines. Users on 0.2.1-rc.5 keep the published `v0.2.1`. Do not widen Host compatibility without checking and testing the consumed APIs.
 
 ## 关键集成约定 / Integration contracts
 
@@ -29,10 +29,10 @@
 - Staging and progress are process-local; do not assume restart recovery. Any persistence change needs a separately designed compatible data contract.
 - 两套预设是 Host Config 的 volatile 字段（`compactExecution`、`switchExecution`），由 Settings 页通过 `ctx.configForms` 写入当前 profile patch；不新增插件设置 RPC。表单命名空间必须与 [`cordis.patch.yml`](<cordis.patch.yml>) 的 entry id（默认 `plan-execute`）一致。
 - The two presets are volatile Host Config fields (`compactExecution`, `switchExecution`) written to the active profile patch through `ctx.configForms`; do not add a plugin settings RPC. The form namespace must match the entry id in [`cordis.patch.yml`](<cordis.patch.yml>) (default `plan-execute`).
-- 快捷按钮只使用已保存且通过模型目录校验的预设，先暂存再要求用户点击原生批准；不得模拟原生按钮、自动批准或静默替换模型。设置冲突保留草稿，且只重试用户实际编辑的预设；清除预设用 `unset` 使字段改用继承值（RC5 在继承层有值时会把该值固定到 profile）。
-- Shortcuts use only saved presets that validate against the model catalog, stage first, and still require the native Approve click; never simulate the native button, auto-approve, or silently substitute a model. Keep drafts on a settings conflict and retry only presets the user actually edited; clear a preset with `unset` to use the inherited value (RC5 pins that value into the profile when a lower layer supplies one).
-- 原生“要求修改”在 RC5 中对计划审批是 `ASK_CANCELLED`（卡片没有 `wait.callId`，`dismissal` 为 `cancel`），会结束审批而不是隐藏；`userQuestionPanels.reveal()` 没有可恢复卡片。不要提供假的恢复命令、伪造审批或从历史重建可执行请求。真正的隐藏/恢复需要上游 DSH 提供稳定 `wait.callId` 或 reopen API。
-- In RC5, the native “Request changes” action ends a plan review with `ASK_CANCELLED` (the card has no `wait.callId`, so `dismissal` is `cancel`); it does not hide it, and `userQuestionPanels.reveal()` has no card to restore. Do not ship a fake restore command, fake an approval, or rebuild an executable request from history. True hide/restore needs an upstream DSH `wait.callId` or reopen API.
+- 快捷按钮只使用已保存且通过模型目录校验的预设，先暂存再要求用户点击原生批准；不得模拟原生按钮、自动批准或静默替换模型。设置冲突保留草稿，且只重试用户实际编辑的预设；清除预设用 `unset` 使字段改用继承值（当前实现在继承层有值时会把该值固定到 profile）。
+- Shortcuts use only saved presets that validate against the model catalog, stage first, and still require the native Approve click; never simulate the native button, auto-approve, or silently substitute a model. Keep drafts on a settings conflict and retry only presets the user actually edited; clear a preset with `unset` to use the inherited value (the current implementation pins that value into the profile when a lower layer supplies one).
+- 原生“要求修改”在 DSH `0.2.2-rc.1` 中对计划审批是 `ASK_CANCELLED`（卡片没有 `wait.callId`，`dismissal` 为 `cancel`），会结束审批而不是隐藏；`userQuestionPanels.reveal()` 没有可恢复卡片。不要提供假的恢复命令、伪造审批或从历史重建可执行请求。真正的隐藏/恢复需要上游 DSH 提供稳定 `wait.callId` 或 reopen API。
+- In DSH `0.2.2-rc.1`, the native “Request changes” action ends a plan review with `ASK_CANCELLED` (the card has no `wait.callId`, so `dismissal` is `cancel`); it does not hide it, and `userQuestionPanels.reveal()` has no card to restore. Do not ship a fake restore command, fake an approval, or rebuild an executable request from history. True hide/restore needs an upstream DSH `wait.callId` or reopen API.
 - `configForms` 通过 `ctx.inject` 作为可选子插件接入；缺失时面板与手动执行选项仍须加载，快捷按钮/设置页只是不可用。settings/config-editor 的写入使用 revision fence。
 - `configForms` is an optional child injection; without it the panel and manual options must still load, with only the shortcuts/settings page unavailable. Settings/config-editor writes stay revision-fenced.
 
@@ -51,16 +51,16 @@ pnpm release:pack
 
 - `pnpm verify` 顺序为 typecheck → build → Vitest → `package:check`，**不包含** Playwright；包检查依赖先构建出的 [`lib/client.js`](<lib/client.js>)。浏览器回归必须显式运行 `pnpm test:browser`，CI 与 Release 会单独执行该命令。[`scripts/check-package.mjs`](<scripts/check-package.mjs>) 会实际打包、解包并核对入口、LICENSE/README 与禁止泄漏的文件。
 - `pnpm verify` runs typecheck → build → Vitest → `package:check` and **excludes** Playwright; package inspection requires the preceding build output [`lib/client.js`](<lib/client.js>). The browser regression must run explicitly through `pnpm test:browser`; CI and Release run that command separately. [`scripts/check-package.mjs`](<scripts/check-package.mjs>) creates and extracts a real tarball, then checks entry points, LICENSE/README, and forbidden files.
-- `pnpm test` 覆盖单元、真实 Cordis 构造/生命周期、真实 RC5 Session + Compaction 配对、完整审批场景，以及 jsdom 客户端行为；`pnpm test:browser` 先用 esbuild 打包 [`test/browser/fixture.tsx`](<test/browser/fixture.tsx>)，再由 Playwright 在 Chromium 中验证裁剪、视口与滚动。首次运行需 `pnpm exec playwright install --only-shell chromium`；完整 Chromium 不是必需。CI 使用 `--only-shell --with-deps` 安装。缺浏览器时必须显式失败，不要静默跳过。
-- `pnpm test` covers units, the real Cordis constructor/lifecycle, real RC5 Session + Compaction pairing, a full approval scenario, and jsdom client behavior; `pnpm test:browser` bundles [`test/browser/fixture.tsx`](<test/browser/fixture.tsx>) with esbuild, then uses Playwright in Chromium to verify clipping, viewport bounds, and scrolling. Run `pnpm exec playwright install --only-shell chromium` once locally; full Chromium is unnecessary. CI installs the headless shell with system dependencies. A missing browser must fail loudly, never silently skip.
+- `pnpm test` 覆盖单元、真实 Cordis 构造/生命周期、真实 Session + Compaction 配对、完整审批场景，以及 jsdom 客户端行为；`pnpm test:browser` 先用 esbuild 打包 [`test/browser/fixture.tsx`](<test/browser/fixture.tsx>)，再由 Playwright 在 Chromium 中验证裁剪、视口与滚动。首次运行需 `pnpm exec playwright install --only-shell chromium`；完整 Chromium 不是必需。CI 使用 `--only-shell --with-deps` 安装。缺浏览器时必须显式失败，不要静默跳过。
+- `pnpm test` covers units, the real Cordis constructor/lifecycle, real Session + Compaction pairing, a full approval scenario, and jsdom client behavior; `pnpm test:browser` bundles [`test/browser/fixture.tsx`](<test/browser/fixture.tsx>) with esbuild, then uses Playwright in Chromium to verify clipping, viewport bounds, and scrolling. Run `pnpm exec playwright install --only-shell chromium` once locally; full Chromium is unnecessary. CI installs the headless shell with system dependencies. A missing browser must fail loudly, never silently skip.
 - Playwright fixture 使用模拟 remote 和真实组件，只证明布局与交互；它不加载完整 DSH Host，也不能替代真实 GUI、正式摘要后端或真实模型调用。
 - The Playwright fixture uses a simulated remote with the real component; it proves layout and interaction only. It does not load a full DSH Host and does not replace live GUI, the production summarizer, or real model calls.
 - [`package.json`](<package.json>) 中的 `release:pack` script 调用 [`scripts/create-release-package.mjs`](<scripts/create-release-package.mjs>)，在忽略的 `.release/` 下创建一个 `.tgz` 和匹配的 `.sha256`，并本地验证摘要/文件名；Release CI 在创建 draft 前还会运行 `sha256sum -c`。`release:pack` 需要先构建，缺少 `lib/` 入口时会明确失败。
 - The `release:pack` script in [`package.json`](<package.json>) calls [`scripts/create-release-package.mjs`](<scripts/create-release-package.mjs>) to create one `.tgz` and matching `.sha256` under ignored `.release/`, then verifies digest/basename locally. Release CI also runs `sha256sum -c` before creating a draft. `release:pack` requires a prior build and fails loudly when the `lib/` entry points are missing.
 - 自动化测试、浏览器 fixture 和 tarball 检查不代表真实 DSH Web GUI 已验证。`lib/` 是生成产物并被 [`.gitignore`](<.gitignore>) 忽略；[`package.json`](<package.json>) 的 `files` 控制 tarball 内容，勿把 maintainer scripts 或 [`AGENTS.md`](<AGENTS.md>) 打进包。
 - Automated tests and tarball inspection are not live DSH GUI validation. `lib/` is generated and ignored by [`.gitignore`](<.gitignore>); [`package.json`](<package.json>)'s `files` controls the tarball, and maintainer scripts / [`AGENTS.md`](<AGENTS.md>) must stay out.
-- 依赖变更后用 pnpm 更新 [`pnpm-lock.yaml`](<pnpm-lock.yaml>)，并保留 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 中 RC5 依赖所需的精确 release-age 排除项；不要用通配方式关闭供应链策略。
-- After dependency changes, update [`pnpm-lock.yaml`](<pnpm-lock.yaml>) with pnpm and preserve the exact release-age exclusions for RC5 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>); do not disable supply-chain policy with broad patterns.
+- 依赖变更后用 pnpm 更新 [`pnpm-lock.yaml`](<pnpm-lock.yaml>)，并保留 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 中 0.2.2-rc.1 依赖所需的精确 release-age 排除项；不要用通配方式关闭供应链策略。CI 以 `--frozen-lockfile` 安装，锁文件过期会直接失败。
+- After dependency changes, update [`pnpm-lock.yaml`](<pnpm-lock.yaml>) with pnpm and preserve the exact release-age exclusions for the 0.2.2-rc.1 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>); do not disable supply-chain policy with broad patterns. CI installs with `--frozen-lockfile`, so a stale lockfile fails loudly.
 
 ## 公开仓库与发布 / Public repository and releases
 
@@ -68,8 +68,8 @@ pnpm release:pack
 - This repository ships as a public GitHub repository. [`LICENSE`](<LICENSE>) uses MIT; CI and tag-driven draft releases live in [`.github/workflows/ci.yml`](<.github/workflows/ci.yml>) and [`.github/workflows/release.yml`](<.github/workflows/release.yml>).
 - [`package.json`](<package.json>) 的 `private: true` 只禁止 npm 发布，是明确选择；不要移除或添加 npm publish 步骤。它不限制 GitHub 仓库可公开，也不限制 GitHub Release tarball。
 - `private: true` in [`package.json`](<package.json>) intentionally disables npm publishing. Do not remove it or add npm publish steps; it does not make the GitHub repository private or prevent Release tarballs.
-- CI 与 Release 使用 Node 24、pnpm 12.16.1；保持 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 对 RC5 依赖的精确 minimum-release-age exclusions。
-- CI and Release use Node 24 and pnpm 12.16.1; preserve the exact RC5 minimum-release-age exclusions in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>).
+- CI 与 Release 使用 Node 24、pnpm 12.16.1；保持 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 对 0.2.2-rc.1 依赖的精确 minimum-release-age exclusions。
+- CI and Release use Node 24 and pnpm 12.16.1; preserve the exact minimum-release-age exclusions for the 0.2.2-rc.1 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>).
 - Release 仅由与 [`package.json`](<package.json>) 版本相符的 `v<version>` tag 触发；从 tag 指向的精确 commit 打包，校验摘要，并只创建 draft。发布 draft、配置 remote、推送分支或 tag 都需要单独明确授权。
 - Release triggers only on a `v<version>` tag matching [`package.json`](<package.json>), packages that exact tagged commit, verifies the checksum and rechecks the remote tag SHA, then creates a draft only. Publishing the draft, configuring a remote, or pushing a branch/tag requires separate explicit authorization.
 - Configure a GitHub ruleset for `v*` tags to prohibit force updates/deletion once the remote exists; workflow checks cannot eliminate the small race after remote SHA verification.

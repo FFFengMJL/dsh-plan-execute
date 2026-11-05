@@ -17,9 +17,9 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - 思考等级按模型记忆在当前审核表单内；只有用户显式选择时才提交 `reasoningEffort`，“使用模型默认值”表示省略该字段。切换回某模型时，仅当该档位仍受最新目录支持才恢复。
 - 执行选项面板通过 portal 挂载到页面浮层，不修改原生审批卡片样式；面板受视口约束并可在内部滚动，支持关闭按钮、Escape、外部点击关闭和焦点返回。
 - 设置页“计划审批执行”保存两套独立预设：压缩历史后执行的模型/思考等级，以及保留历史后执行的模型/思考等级。预设写入当前 profile；未配置时对应快捷按钮明确不可用，不会猜测模型。
-- 审核卡片顶部提供“按预设”快捷按钮。它们只**暂存**对应模式与预设，仍需点击原生“同意执行”按钮；不会模拟点击、自动批准或绕过原生批准。设置变更后用 `unset` 使字段改用继承值；RC5 在继承层有值时会把这个值固定到 profile。冲突时保留草稿，且只重试用户实际编辑的预设，不会覆盖另一项。
+- 审核卡片顶部提供“按预设”快捷按钮。它们只**暂存**对应模式与预设，仍需点击原生“同意执行”按钮；不会模拟点击、自动批准或绕过原生批准。设置变更后用 `unset` 使字段改用继承值；当前实现在继承层有值时会把这个值固定到 profile。冲突时保留草稿，且只重试用户实际编辑的预设，不会覆盖另一项。
 - 窄屏下快捷按钮收进“选项”面板，以完整文字和模型名展示；桌面端保留分组按钮，并通过边框、间距、图标和更大的字号与原生“查看全文”区分。不会覆写或移动原生审批区域。
-- 原生“要求修改”在 DSH RC5 中会以 `ASK_CANCELLED` 结束计划审批，而不是隐藏卡片；公开的 `userQuestionPanels.reveal()` 没有可恢复的卡片，插件也不会伪造审批或从历史重建可执行请求。因此本版不提供 `/review-plan`；真正的“隐藏后恢复”需要上游 DSH 提供稳定的审批 `wait.callId` 或 reopen API。
+- 原生“要求修改”在 DSH `0.2.2-rc.1` 中会以 `ASK_CANCELLED` 结束计划审批，而不是隐藏卡片；公开的 `userQuestionPanels.reveal()` 没有可恢复的卡片，插件也不会伪造审批或从历史重建可执行请求。因此本版不提供 `/review-plan`；真正的“隐藏后恢复”需要上游 DSH 提供稳定的审批 `wait.callId` 或 reopen API。
 - 进度和暂存设置是进程内状态；插件卸载或进程重启后不会自动恢复或继续执行。用户需要重新呈现/审核计划。
 - 压缩一旦提交便不能回滚；若之后模型选择失败，计划仍不会获批，但压缩后的上下文会保留。
 
@@ -31,9 +31,9 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - Reasoning effort is remembered per model within the current review form. `reasoningEffort` is only sent after an explicit choice; “Use model default” omits it. Switching back to a model restores the effort only while the latest catalog still advertises it.
 - The options panel is rendered through a portal instead of restyling the native approval card. It is viewport-clamped, scrolls internally, and supports a close button, Escape, outside clicks, and focus return.
 - The Settings page “Plan approval execution” saves two independent presets: a model/effort for “compact history, then execute” and one for “keep history, then execute”. Presets are written to the active profile. A shortcut without a preset is explicitly unavailable rather than guessing a model.
-- “Presets” shortcuts at the top of the review card only **stage** the mode and saved target; the native Approve button still executes. They never simulate that button, auto-approve, or bypass the native flow. Clearing an override writes `unset` to use the inherited value; RC5 pins that value into the profile when a lower layer supplies one. Conflicts keep the draft, retry only presets the user actually edited, and never overwrite the other preset.
+- “Presets” shortcuts at the top of the review card only **stage** the mode and saved target; the native Approve button still executes. They never simulate that button, auto-approve, or bypass the native flow. Clearing an override writes `unset` to use the inherited value; the current implementation pins that value into the profile when a lower layer supplies one. Conflicts keep the draft, retry only presets the user actually edited, and never overwrite the other preset.
 - On narrow screens the shortcuts collapse into the “presets” panel with full labels and model names; on desktop they stay a bordered, spaced, icon-labelled group that is clearly distinct from the native “View full plan” link. Native approval chrome is never restyled or moved.
-- In DSH RC5, the native “Request changes” action ends the plan review with `ASK_CANCELLED`; it does not merely hide the card. The public `userQuestionPanels.reveal()` then has no card to restore, and the plugin will not fake an approval or rebuild an executable request from history. This release therefore does not ship `/review-plan`; true hide-and-restore needs an upstream DSH change (a stable approval `wait.callId` or a reopen API).
+- In DSH `0.2.2-rc.1`, the native “Request changes” action ends the plan review with `ASK_CANCELLED`; it does not merely hide the card. The public `userQuestionPanels.reveal()` then has no card to restore, and the plugin will not fake an approval or rebuild an executable request from history. This release therefore does not ship `/review-plan`; true hide-and-restore needs an upstream DSH change (a stable approval `wait.callId` or a reopen API).
 - Staged settings and progress are process-local. They are not resumed after plugin unload or process restart; the plan must be presented and reviewed again.
 - Compaction cannot be rolled back after it commits. If model selection subsequently fails, the plan is not approved, but the compacted context remains.
 
@@ -42,7 +42,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 从 [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases) 下载 tarball 后安装到指定 profile：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.1.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.2.tgz
 ```
 
 本地开发可先构建，再用 link 安装：
@@ -62,7 +62,7 @@ dsh plugin --profile web remove dsh-plan-execute
 
 `dsh plugin` 只负责 profile 的依赖与 bundle 登记；运行中的 DSH 是否加载新客户端代码取决于其重载机制。没有开发 watcher 时，需要重新加载或重启对应 profile，不能仅凭 `package.json` 已登记就认定运行中实例已加载。
 
-先打开“设置 → 计划审批执行”，为两种执行方式各保存一套预设（模型 + 可选思考等级）。未配置的快捷按钮不可用；覆盖的预设可以清除以使用继承值（RC5 会把该值固定到 profile），继承的预设不能在此清除，需在来源层修改。
+先打开“设置 → 计划审批执行”，为两种执行方式各保存一套预设（模型 + 可选思考等级）。未配置的快捷按钮不可用；覆盖的预设可以清除以使用继承值（当前实现会把该值固定到 profile），继承的预设不能在此清除，需在来源层修改。
 
 在计划审核卡片中使用快捷按钮：
 
@@ -75,7 +75,7 @@ dsh plugin --profile web remove dsh-plan-execute
 Download the tarball from [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases), then install it into a profile:
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.1.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.2.tgz
 ```
 
 For local development, build first and link the checkout:
@@ -95,7 +95,7 @@ dsh plugin --profile web remove dsh-plan-execute
 
 `dsh plugin` manages the profile's dependency and bundle registration. Whether a running DSH loads the new client code depends on its reload mechanism; without a development watcher, reload or restart the profile. A registered dependency does not prove the running instance loaded it.
 
-First open Settings → Plan approval execution and save one preset for each execution style (a model plus an optional reasoning effort). A shortcut without a preset is unavailable; clearing an override uses the inherited value (RC5 pins that value into the profile), while an inherited preset cannot be cleared here and must be changed at its source layer.
+First open Settings → Plan approval execution and save one preset for each execution style (a model plus an optional reasoning effort). A shortcut without a preset is unavailable; clearing an override uses the inherited value (the current implementation pins that value into the profile), while an inherited preset cannot be cleared here and must be changed at its source layer.
 
 In the plan-review card:
 
@@ -107,15 +107,15 @@ Note: the native “Request changes” action ends this plan review and returns 
 
 ## 模型选择影响 | Model-selection effect
 
-预设和临时选择中的自定义模型与思考等级都通过 DSH RC5 的公开 `sessionController.selectModel()` API 选择；快捷按钮只是在批准前暂存同一 `StageApprovalRequest`，不会提前切换模型。该 API 会为当前会话安装选择，并异步尝试更新 Host 默认模型；默认值保存失败只会记录日志，因此不能保证默认值一定改变。选择“沿用当前模型”不会触发该更新。模型选择在本会话中保持有效，直到用户通过 DSH 原生模型选择器更改。
+预设和临时选择中的自定义模型与思考等级都通过 DSH 的公开 `sessionController.selectModel()` API 选择（已在 `0.2.2-rc.1` 验证）；快捷按钮只是在批准前暂存同一 `StageApprovalRequest`，不会提前切换模型。该 API 会为当前会话安装选择，并异步尝试更新 Host 默认模型；默认值保存失败只会记录日志，因此不能保证默认值一定改变。选择“沿用当前模型”不会触发该更新。模型选择在本会话中保持有效，直到用户通过 DSH 原生模型选择器更改。
 
-Preset and temporary custom models and efforts all go through DSH RC5's public `sessionController.selectModel()` API; a shortcut only stages the same `StageApprovalRequest` before approval and never switches the model early. That API installs the selection for the current Session and asynchronously attempts to save the Host default; a failed default save is only logged, so the default is not guaranteed to change. Choosing “Use current model” does not trigger this update. A custom selection remains active for this Session until changed through DSH's native model selector.
+Preset and temporary custom models and efforts all go through DSH's public `sessionController.selectModel()` API (verified on `0.2.2-rc.1`); a shortcut only stages the same `StageApprovalRequest` before approval and never switches the model early. That API installs the selection for the current Session and asynchronously attempts to save the Host default; a failed default save is only logged, so the default is not guaranteed to change. Choosing “Use current model” does not trigger this update. A custom selection remains active for this Session until changed through DSH's native model selector.
 
 ## 兼容性与发布状态 | Compatibility and release status
 
-首版按 DSH `0.2.1-rc.5` 的 Host、Typert、Compaction、Session 和 Web client API 实现，依赖版本在 [`package.json`](package.json) 中固定。设置页使用该版本的 `ctx.configForms` 与 `settings.section`；这些依赖以精确 RC5 peer 声明。其他 Host 版本尚未验证。
+当前发布版本按 DSH `0.2.2-rc.1` 的 Host、Typert、Compaction、Session 和 Web client API 实现；DSH 依赖在 [`package.json`](package.json) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。设置页使用 `ctx.configForms` 与 `settings.section`；该版本通过完整门禁。0.2.1-rc.5 用户继续使用已发布的 `v0.2.1`；正式版 0.2.1/0.2.2 与其他 Host 版本尚未验证，不会被自动放行。
 
-The first version targets the DSH `0.2.1-rc.5` Host, Typert, Compaction, Session, and Web client APIs. Peer versions are pinned in [`package.json`](package.json). The settings page uses that release's `ctx.configForms` and `settings.section`; these are pinned as exact RC5 peers. Other Host versions have not been verified.
+The current release targets DSH `0.2.2-rc.1` across the Host, Typert, Compaction, Session, and Web client APIs; DSH dependencies are pinned exactly in [`package.json`](package.json), with Cordis and Schemastery pinned to their verified minor lines. The settings page uses `ctx.configForms` and `settings.section`; this release passes the full gate. Users on 0.2.1-rc.5 keep the published `v0.2.1`. Stable 0.2.1/0.2.2 and other Host versions are not verified and are not admitted automatically.
 
 ## 发布与分发 | Release and distribution
 
@@ -150,7 +150,7 @@ pnpm exec playwright install --only-shell chromium
 
 测试层级与证据边界：
 
-- Vitest 覆盖审批门控、失败关闭、取消、生命周期、模型目录纯函数、真实 RC5 `Session` + Compaction 工具配对，以及完整审批场景（真实会话、真实范围计算、可控摘要替身）；审批门控仍是唯一可放行计划的路径。
+- Vitest 覆盖审批门控、失败关闭、取消、生命周期、模型目录纯函数、真实 `Session` + Compaction 工具配对，以及完整审批场景（真实会话、真实范围计算、可控摘要替身）；审批门控仍是唯一可放行计划的路径。
 - jsdom + Testing Library 覆盖模型目录状态、按模型思考等级、保存请求、非终态轮询、portal 与关闭/焦点行为；同时覆盖两套预设的草稿、`set`/`unset` 写入、冲突重试隔离、目录不可用时清除、继承值固定、只读与目录失败，以及快捷按钮的预设暂存、未配置/模型失效禁用。
 - Playwright fixture 在真实 Chromium 中复现 `overflow:hidden` 审批容器，验证面板不被裁剪、受视口约束、短视口可滚动、窄屏无横向溢出、桌面快捷按钮分组和窄屏“选项”面板。fixture 使用模拟 remote，不代表真实 DSH GUI 已验证。
 - 真实 DSH Web GUI、正式 Compaction 摘要后端和真实服务商模型调用没有在自动测试中运行；这些仍需单独的人工或隔离 profile 验收。
@@ -165,7 +165,7 @@ pnpm exec playwright install --only-shell chromium
 
 Evidence boundaries:
 
-- Vitest covers the approval gate, fail-closed paths, cancellation, lifecycle, catalog helpers, the real RC5 `Session` + Compaction pairing helpers, and a full approval scenario (real Session, real range calculation, controllable summary stand-in); the approval gate remains the only path that can release a plan.
+- Vitest covers the approval gate, fail-closed paths, cancellation, lifecycle, catalog helpers, the real `Session` + Compaction pairing helpers, and a full approval scenario (real Session, real range calculation, controllable summary stand-in); the approval gate remains the only path that can release a plan.
 - jsdom + Testing Library covers catalog states, per-model reasoning effort, save payloads, non-terminal polling, and portal/close/focus behavior; it also covers both preset drafts, `set`/`unset` writes, conflict-retry isolation, clearing while the catalog is unavailable, inherited-value pinning, read-only and catalog failures, and shortcut staging for configured, unconfigured, and stale presets.
 - The Playwright fixture reproduces an `overflow:hidden` approval container in headless Chromium and verifies the panel escapes clipping, stays inside the viewport, scrolls in short viewports, and does not overflow horizontally; it also checks the desktop shortcut group and the narrow-screen preset panel. It uses a simulated remote and is not live DSH GUI validation.
 - The live DSH Web GUI, the production compaction summarizer, and real provider model calls are not exercised by automated tests; they still need separate manual or isolated-profile acceptance.
