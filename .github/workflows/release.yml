@@ -19,6 +19,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
+      dsh_range: ${{ steps.version.outputs.dsh_range }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -58,6 +59,7 @@ jobs:
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "commit=${EVENT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "dsh_range=$(node -p "require('./package.json').engines.dsh")" >> "$GITHUB_OUTPUT"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --only-shell --with-deps chromium
@@ -108,10 +110,15 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ needs.package.outputs.version }}
           EXPECTED_SHA: ${{ needs.package.outputs.commit }}
+          DSH_RANGE: ${{ needs.package.outputs.dsh_range }}
         run: |
           set -euo pipefail
           if [ -z "${EXPECTED_SHA}" ]; then
             echo "::error::package job did not publish the tagged commit"
+            exit 1
+          fi
+          if [ -z "${DSH_RANGE}" ]; then
+            echo "::error::package job did not report the DSH range"
             exit 1
           fi
           remote_sha=$(gh api "repos/${REPO}/commits/${TAG}" --jq .sha)
@@ -132,7 +139,8 @@ jobs:
           {
             echo "dsh-plan-execute ${VERSION}"
             echo
-            echo "Requires DSH 0.2.1-rc.5. This project is MIT licensed."
+            echo "Requires DSH ${DSH_RANGE}. This project is MIT licensed."
+            echo "DSH 0.2.1-rc.5 users should continue using v0.2.1."
             echo "The package is intentionally not published to npm."
             echo
             echo "> This is a draft release. GitHub download URLs are not available until it is published."
