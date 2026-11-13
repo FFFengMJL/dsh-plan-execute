@@ -140,6 +140,7 @@ jobs:
             echo "dsh-plan-execute ${VERSION}"
             echo
             echo "Requires DSH ${DSH_RANGE}. This project is MIT licensed."
+            echo "DSH 0.2.2-rc.1 users should continue using v0.2.2."
             echo "DSH 0.2.1-rc.5 users should continue using v0.2.1."
             echo "The package is intentionally not published to npm."
             echo

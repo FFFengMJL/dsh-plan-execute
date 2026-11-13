@@ -19,7 +19,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - 设置页“计划审批执行”保存两套独立预设：压缩历史后执行的模型/思考等级，以及保留历史后执行的模型/思考等级。预设写入当前 profile；未配置时对应快捷按钮明确不可用，不会猜测模型。
 - 审核卡片顶部提供“按预设”快捷按钮。它们只**暂存**对应模式与预设，仍需点击原生“同意执行”按钮；不会模拟点击、自动批准或绕过原生批准。设置变更后用 `unset` 使字段改用继承值；当前实现在继承层有值时会把这个值固定到 profile。冲突时保留草稿，且只重试用户实际编辑的预设，不会覆盖另一项。
 - 窄屏下快捷按钮收进“选项”面板，以完整文字和模型名展示；桌面端保留分组按钮，并通过边框、间距、图标和更大的字号与原生“查看全文”区分。不会覆写或移动原生审批区域。
-- 原生“要求修改”在 DSH `0.2.2-rc.1` 中会以 `ASK_CANCELLED` 结束计划审批，而不是隐藏卡片；公开的 `userQuestionPanels.reveal()` 没有可恢复的卡片，插件也不会伪造审批或从历史重建可执行请求。因此本版不提供 `/review-plan`；真正的“隐藏后恢复”需要上游 DSH 提供稳定的审批 `wait.callId` 或 reopen API。
+- 原生“要求修改”在 DSH `0.2.2-rc.2` 中会以 `ASK_CANCELLED` 结束计划审批，而不是隐藏卡片；公开的 `userQuestionPanels.reveal()` 没有可恢复的卡片，插件也不会伪造审批或从历史重建可执行请求。因此本版不提供 `/review-plan`；真正的“隐藏后恢复”需要上游 DSH 提供稳定的审批 `wait.callId` 或 reopen API。
 - 进度和暂存设置是进程内状态；插件卸载或进程重启后不会自动恢复或继续执行。用户需要重新呈现/审核计划。
 - 压缩一旦提交便不能回滚；若之后模型选择失败，计划仍不会获批，但压缩后的上下文会保留。
 
@@ -33,7 +33,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 - The Settings page “Plan approval execution” saves two independent presets: a model/effort for “compact history, then execute” and one for “keep history, then execute”. Presets are written to the active profile. A shortcut without a preset is explicitly unavailable rather than guessing a model.
 - “Presets” shortcuts at the top of the review card only **stage** the mode and saved target; the native Approve button still executes. They never simulate that button, auto-approve, or bypass the native flow. Clearing an override writes `unset` to use the inherited value; the current implementation pins that value into the profile when a lower layer supplies one. Conflicts keep the draft, retry only presets the user actually edited, and never overwrite the other preset.
 - On narrow screens the shortcuts collapse into the “presets” panel with full labels and model names; on desktop they stay a bordered, spaced, icon-labelled group that is clearly distinct from the native “View full plan” link. Native approval chrome is never restyled or moved.
-- In DSH `0.2.2-rc.1`, the native “Request changes” action ends the plan review with `ASK_CANCELLED`; it does not merely hide the card. The public `userQuestionPanels.reveal()` then has no card to restore, and the plugin will not fake an approval or rebuild an executable request from history. This release therefore does not ship `/review-plan`; true hide-and-restore needs an upstream DSH change (a stable approval `wait.callId` or a reopen API).
+- In DSH `0.2.2-rc.2`, the native “Request changes” action ends the plan review with `ASK_CANCELLED`; it does not merely hide the card. The public `userQuestionPanels.reveal()` then has no card to restore, and the plugin will not fake an approval or rebuild an executable request from history. This release therefore does not ship `/review-plan`; true hide-and-restore needs an upstream DSH change (a stable approval `wait.callId` or a reopen API).
 - Staged settings and progress are process-local. They are not resumed after plugin unload or process restart; the plan must be presented and reviewed again.
 - Compaction cannot be rolled back after it commits. If model selection subsequently fails, the plan is not approved, but the compacted context remains.
 
@@ -107,15 +107,15 @@ Note: the native “Request changes” action ends this plan review and returns 
 
 ## 模型选择影响 | Model-selection effect
 
-预设和临时选择中的自定义模型与思考等级都通过 DSH 的公开 `sessionController.selectModel()` API 选择（已在 `0.2.2-rc.1` 验证）；快捷按钮只是在批准前暂存同一 `StageApprovalRequest`，不会提前切换模型。该 API 会为当前会话安装选择，并异步尝试更新 Host 默认模型；默认值保存失败只会记录日志，因此不能保证默认值一定改变。选择“沿用当前模型”不会触发该更新。模型选择在本会话中保持有效，直到用户通过 DSH 原生模型选择器更改。
+预设和临时选择中的自定义模型与思考等级都通过 DSH 的公开 `sessionController.selectModel()` API 选择（已核对 `0.2.2-rc.2` 的公开接口与实现）；快捷按钮只是在批准前暂存同一 `StageApprovalRequest`，不会提前切换模型。该 API 会为当前会话安装选择，并异步尝试更新 Host 默认模型；默认值保存失败只会记录日志，因此不能保证默认值一定改变。选择“沿用当前模型”不会触发该更新。模型选择在本会话中保持有效，直到用户通过 DSH 原生模型选择器更改。
 
-Preset and temporary custom models and efforts all go through DSH's public `sessionController.selectModel()` API (verified on `0.2.2-rc.1`); a shortcut only stages the same `StageApprovalRequest` before approval and never switches the model early. That API installs the selection for the current Session and asynchronously attempts to save the Host default; a failed default save is only logged, so the default is not guaranteed to change. Choosing “Use current model” does not trigger this update. A custom selection remains active for this Session until changed through DSH's native model selector.
+Preset and temporary custom models and efforts all go through DSH's public `sessionController.selectModel()` API (public interface and implementation checked on `0.2.2-rc.2`); a shortcut only stages the same `StageApprovalRequest` before approval and never switches the model early. That API installs the selection for the current Session and asynchronously attempts to save the Host default; a failed default save is only logged, so the default is not guaranteed to change. Choosing “Use current model” does not trigger this update. A custom selection remains active for this Session until changed through DSH's native model selector.
 
 ## 兼容性与发布状态 | Compatibility and release status
 
-当前发布版本按 DSH `0.2.2-rc.1` 的 Host、Typert、Compaction、Session 和 Web client API 实现；DSH 依赖在 [`package.json`](package.json) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。设置页使用 `ctx.configForms` 与 `settings.section`；该版本通过完整门禁。0.2.1-rc.5 用户继续使用已发布的 `v0.2.1`；正式版 0.2.1/0.2.2 与其他 Host 版本尚未验证，不会被自动放行。
+当前发布版本 `0.2.3` 按 DSH `0.2.2-rc.2` 的 Host、Typert、Compaction、Session 和 Web client API 实现；DSH 依赖在 [`package.json`](package.json) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。设置页使用 `ctx.configForms` 与 `settings.section`；该版本通过自动门禁，并在重启后的真实 GUI 审批对话框中验证了预设按钮、暂存状态与选项入口。DSH `0.2.2-rc.1` 用户继续使用已发布的 `v0.2.2`，`0.2.1-rc.5` 用户继续使用 `v0.2.1`；正式版 0.2.1/0.2.2 与其他 Host 版本尚未验证，不会被自动放行。
 
-The current release targets DSH `0.2.2-rc.1` across the Host, Typert, Compaction, Session, and Web client APIs; DSH dependencies are pinned exactly in [`package.json`](package.json), with Cordis and Schemastery pinned to their verified minor lines. The settings page uses `ctx.configForms` and `settings.section`; this release passes the full gate. Users on 0.2.1-rc.5 keep the published `v0.2.1`. Stable 0.2.1/0.2.2 and other Host versions are not verified and are not admitted automatically.
+The current release `0.2.3` targets DSH `0.2.2-rc.2` across the Host, Typert, Compaction, Session, and Web client APIs; DSH dependencies are pinned exactly in [`package.json`](package.json), with Cordis and Schemastery pinned to their verified minor lines. The settings page uses `ctx.configForms` and `settings.section`; this release passes the automated gate, and its preset buttons, staged state, and options entry were verified in the live GUI approval dialog after a restart. Users on DSH `0.2.2-rc.1` keep the published `v0.2.2`, and users on `0.2.1-rc.5` keep `v0.2.1`. Stable 0.2.1/0.2.2 and other Host versions are not verified and are not admitted automatically.
 
 ## 发布与分发 | Release and distribution
 

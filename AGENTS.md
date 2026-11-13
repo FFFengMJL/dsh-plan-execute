@@ -4,8 +4,8 @@
 
 - 本仓库是 DSH 计划审核扩展：Host 入口在 [`src/index.ts`](<src/index.ts>)，Web client 在 [`src/client/index.tsx`](<src/client/index.tsx>)；面向使用者的说明见 [`README.md`](README.md)。
 - The Host entry is [`src/index.ts`](<src/index.ts>); the Web client is [`src/client/index.tsx`](<src/client/index.tsx>). User-facing behavior is documented in [`README.md`](README.md).
-- 当前只支持 DSH `0.2.2-rc.1`；DSH 依赖在 [`package.json`](<package.json>) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。0.2.1-rc.5 用户继续使用已发布的 `v0.2.1`。不要把依赖范围扩到其他 Host 版本，除非逐项核对并测试相应 API。
-- The current support target is DSH `0.2.2-rc.1`; DSH dependencies are pinned exactly in [`package.json`](<package.json>), with Cordis and Schemastery pinned to their verified minor lines. Users on 0.2.1-rc.5 keep the published `v0.2.1`. Do not widen Host compatibility without checking and testing the consumed APIs.
+- 当前只支持 DSH `0.2.2-rc.2`；DSH 依赖在 [`package.json`](<package.json>) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。0.2.1-rc.5 用户继续使用已发布的 `v0.2.1`。不要把依赖范围扩到其他 Host 版本，除非逐项核对并测试相应 API。
+- The current support target is DSH `0.2.2-rc.2`; DSH dependencies are pinned exactly in [`package.json`](<package.json>), with Cordis and Schemastery pinned to their verified minor lines. Users on 0.2.1-rc.5 keep the published `v0.2.1`. Do not widen Host compatibility without checking and testing the consumed APIs.
 
 ## 关键集成约定 / Integration contracts
 
@@ -31,8 +31,8 @@
 - The two presets are volatile Host Config fields (`compactExecution`, `switchExecution`) written to the active profile patch through `ctx.configForms`; do not add a plugin settings RPC. The form namespace must match the entry id in [`cordis.patch.yml`](<cordis.patch.yml>) (default `plan-execute`).
 - 快捷按钮只使用已保存且通过模型目录校验的预设，先暂存再要求用户点击原生批准；不得模拟原生按钮、自动批准或静默替换模型。设置冲突保留草稿，且只重试用户实际编辑的预设；清除预设用 `unset` 使字段改用继承值（当前实现在继承层有值时会把该值固定到 profile）。
 - Shortcuts use only saved presets that validate against the model catalog, stage first, and still require the native Approve click; never simulate the native button, auto-approve, or silently substitute a model. Keep drafts on a settings conflict and retry only presets the user actually edited; clear a preset with `unset` to use the inherited value (the current implementation pins that value into the profile when a lower layer supplies one).
-- 原生“要求修改”在 DSH `0.2.2-rc.1` 中对计划审批是 `ASK_CANCELLED`（卡片没有 `wait.callId`，`dismissal` 为 `cancel`），会结束审批而不是隐藏；`userQuestionPanels.reveal()` 没有可恢复卡片。不要提供假的恢复命令、伪造审批或从历史重建可执行请求。真正的隐藏/恢复需要上游 DSH 提供稳定 `wait.callId` 或 reopen API。
-- In DSH `0.2.2-rc.1`, the native “Request changes” action ends a plan review with `ASK_CANCELLED` (the card has no `wait.callId`, so `dismissal` is `cancel`); it does not hide it, and `userQuestionPanels.reveal()` has no card to restore. Do not ship a fake restore command, fake an approval, or rebuild an executable request from history. True hide/restore needs an upstream DSH `wait.callId` or reopen API.
+- 原生“要求修改”在 DSH `0.2.2-rc.2` 中对计划审批是 `ASK_CANCELLED`（卡片没有 `wait.callId`，`dismissal` 为 `cancel`），会结束审批而不是隐藏；`userQuestionPanels.reveal()` 没有可恢复卡片。不要提供假的恢复命令、伪造审批或从历史重建可执行请求。真正的隐藏/恢复需要上游 DSH 提供稳定 `wait.callId` 或 reopen API。
+- In DSH `0.2.2-rc.2`, the native “Request changes” action ends a plan review with `ASK_CANCELLED` (the card has no `wait.callId`, so `dismissal` is `cancel`); it does not hide it, and `userQuestionPanels.reveal()` has no card to restore. Do not ship a fake restore command, fake an approval, or rebuild an executable request from history. True hide/restore needs an upstream DSH `wait.callId` or reopen API.
 - `configForms` 通过 `ctx.inject` 作为可选子插件接入；缺失时面板与手动执行选项仍须加载，快捷按钮/设置页只是不可用。settings/config-editor 的写入使用 revision fence。
 - `configForms` is an optional child injection; without it the panel and manual options must still load, with only the shortcuts/settings page unavailable. Settings/config-editor writes stay revision-fenced.
 
@@ -59,8 +59,8 @@ pnpm release:pack
 - The `release:pack` script in [`package.json`](<package.json>) calls [`scripts/create-release-package.mjs`](<scripts/create-release-package.mjs>) to create one `.tgz` and matching `.sha256` under ignored `.release/`, then verifies digest/basename locally. Release CI also runs `sha256sum -c` before creating a draft. `release:pack` requires a prior build and fails loudly when the `lib/` entry points are missing.
 - 自动化测试、浏览器 fixture 和 tarball 检查不代表真实 DSH Web GUI 已验证。`lib/` 是生成产物并被 [`.gitignore`](<.gitignore>) 忽略；[`package.json`](<package.json>) 的 `files` 控制 tarball 内容，勿把 maintainer scripts 或 [`AGENTS.md`](<AGENTS.md>) 打进包。
 - Automated tests and tarball inspection are not live DSH GUI validation. `lib/` is generated and ignored by [`.gitignore`](<.gitignore>); [`package.json`](<package.json>)'s `files` controls the tarball, and maintainer scripts / [`AGENTS.md`](<AGENTS.md>) must stay out.
-- 依赖变更后用 pnpm 更新 [`pnpm-lock.yaml`](<pnpm-lock.yaml>)，并保留 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 中 0.2.2-rc.1 依赖所需的精确 release-age 排除项；不要用通配方式关闭供应链策略。CI 以 `--frozen-lockfile` 安装，锁文件过期会直接失败。
-- After dependency changes, update [`pnpm-lock.yaml`](<pnpm-lock.yaml>) with pnpm and preserve the exact release-age exclusions for the 0.2.2-rc.1 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>); do not disable supply-chain policy with broad patterns. CI installs with `--frozen-lockfile`, so a stale lockfile fails loudly.
+- 依赖变更后用 pnpm 更新 [`pnpm-lock.yaml`](<pnpm-lock.yaml>)，并保留 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 中 0.2.2-rc.2 依赖所需的精确 release-age 排除项；不要用通配方式关闭供应链策略。CI 以 `--frozen-lockfile` 安装，锁文件过期会直接失败。
+- After dependency changes, update [`pnpm-lock.yaml`](<pnpm-lock.yaml>) with pnpm and preserve the exact release-age exclusions for the 0.2.2-rc.2 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>); do not disable supply-chain policy with broad patterns. CI installs with `--frozen-lockfile`, so a stale lockfile fails loudly.
 
 ## 公开仓库与发布 / Public repository and releases
 
@@ -68,8 +68,8 @@ pnpm release:pack
 - This repository ships as a public GitHub repository. [`LICENSE`](<LICENSE>) uses MIT; CI and tag-driven draft releases live in [`.github/workflows/ci.yml`](<.github/workflows/ci.yml>) and [`.github/workflows/release.yml`](<.github/workflows/release.yml>).
 - [`package.json`](<package.json>) 的 `private: true` 只禁止 npm 发布，是明确选择；不要移除或添加 npm publish 步骤。它不限制 GitHub 仓库可公开，也不限制 GitHub Release tarball。
 - `private: true` in [`package.json`](<package.json>) intentionally disables npm publishing. Do not remove it or add npm publish steps; it does not make the GitHub repository private or prevent Release tarballs.
-- CI 与 Release 使用 Node 24、pnpm 12.16.1；保持 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 对 0.2.2-rc.1 依赖的精确 minimum-release-age exclusions。
-- CI and Release use Node 24 and pnpm 12.16.1; preserve the exact minimum-release-age exclusions for the 0.2.2-rc.1 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>).
+- CI 与 Release 使用 Node 24、pnpm 12.16.1；保持 [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>) 对 0.2.2-rc.2 依赖的精确 minimum-release-age exclusions。
+- CI and Release use Node 24 and pnpm 12.16.1; preserve the exact minimum-release-age exclusions for the 0.2.2-rc.2 dependencies in [`pnpm-workspace.yaml`](<pnpm-workspace.yaml>).
 - Release 仅由与 [`package.json`](<package.json>) 版本相符的 `v<version>` tag 触发；从 tag 指向的精确 commit 打包，校验摘要，并只创建 draft。发布 draft、配置 remote、推送分支或 tag 都需要单独明确授权。
 - Release triggers only on a `v<version>` tag matching [`package.json`](<package.json>), packages that exact tagged commit, verifies the checksum and rechecks the remote tag SHA, then creates a draft only. Publishing the draft, configuring a remote, or pushing a branch/tag requires separate explicit authorization.
 - Configure a GitHub ruleset for `v*` tags to prohibit force updates/deletion once the remote exists; workflow checks cannot eliminate the small race after remote SHA verification.
