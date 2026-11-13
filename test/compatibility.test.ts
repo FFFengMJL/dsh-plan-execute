@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+const { satisfies } = createRequire(import.meta.url)('semver') as { satisfies: (version: string, range: string, options: { includePrerelease: boolean }) => boolean }
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -11,19 +13,26 @@ interface Manifest {
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const manifest = JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as Manifest
-const target = '0.2.2-rc.2'
+const target = '0.2.2-rc.3'
+const supported = '>=0.2.2-rc.2 <0.2.3-0'
 
 describe('DSH compatibility metadata', () => {
-  it('admits only the verified DSH release', () => {
-    expect(manifest.engines.dsh).toBe(target)
-    expect(manifest.dsh.compatibility.dshReleases).toEqual({ [target]: 'compatible' })
+  it.each([
+    ['0.2.2-rc.1', false], ['0.2.2-rc.2', true], ['0.2.2-rc.3', true],
+    ['0.2.2-rc.99', true], ['0.2.2', true], ['0.2.3-rc.1', false], ['0.2.3', false],
+  ])('checks runtime admission for %s', (version, admitted) => {
+    expect(satisfies(version as string, manifest.engines.dsh, { includePrerelease: true })).toBe(admitted)
+  })
+  it('separates the admitted release line from verified releases', () => {
+    expect(manifest.engines.dsh).toBe(supported)
+    expect(manifest.dsh.compatibility.dshReleases[target]).toBe('compatible')
   })
 
-  it('pins every DSH peer to the verified release', () => {
+  it('bounds every DSH peer to the supported release line', () => {
     const dshPeers = Object.entries(manifest.peerDependencies)
       .filter(([name]) => name.startsWith('@deepseek-ai/dsh'))
     expect(dshPeers.length).toBeGreaterThan(10)
-    for (const [name, range] of dshPeers) expect(range, name).toBe(target)
+    for (const [name, range] of dshPeers) expect(range, name).toBe(supported)
   })
 
   it('pins the Cordis and Schemastery peers to the verified lines', () => {
