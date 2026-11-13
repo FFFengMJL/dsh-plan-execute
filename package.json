@@ -1,6 +1,6 @@
 {
   "name": "dsh-plan-execute",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "packageManager": "pnpm@12.16.1",
   "license": "MIT",
