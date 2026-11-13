@@ -42,7 +42,7 @@ A same-Session plan approval and execution-options extension for DSH. It preserv
 从 [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases) 下载 tarball 后安装到指定 profile：
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.3.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.4.tgz
 ```
 
 本地开发可先构建，再用 link 安装：
@@ -75,7 +75,7 @@ dsh plugin --profile web remove dsh-plan-execute
 Download the tarball from [GitHub Releases](https://github.com/FFFengMJL/dsh-plan-execute/releases), then install it into a profile:
 
 ```sh
-dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.3.tgz
+dsh plugin --profile web add /path/to/dsh-plan-execute-0.2.4.tgz
 ```
 
 For local development, build first and link the checkout:
@@ -113,9 +113,9 @@ Preset and temporary custom models and efforts all go through DSH's public `sess
 
 ## 兼容性与发布状态 | Compatibility and release status
 
-当前发布版本 `0.2.3` 按 DSH `0.2.2-rc.2` 的 Host、Typert、Compaction、Session 和 Web client API 实现；DSH 依赖在 [`package.json`](package.json) 中精确固定，Cordis 与 Schemastery 固定到已验证的次版本线。设置页使用 `ctx.configForms` 与 `settings.section`；该版本通过自动门禁，并在重启后的真实 GUI 审批对话框中验证了预设按钮、暂存状态与选项入口。DSH `0.2.2-rc.1` 用户继续使用已发布的 `v0.2.2`，`0.2.1-rc.5` 用户继续使用 `v0.2.1`；正式版 0.2.1/0.2.2 与其他 Host 版本尚未验证，不会被自动放行。
+本地适配版本 `0.2.4` 使用 DSH `0.2.2-rc.3` 的精确开发依赖；运行时 engines 和 DSH peers 允许 `>=0.2.2-rc.2 <0.2.3-0`。Cordis 与 Schemastery 保持已验证的次版本线。允许加载不等于已验证：范围包含后续 0.2.2 RC 和正式版，但排除 0.2.3 的预发布及以上版本。rc.2 的历史验证记录保留；rc.3 的自动检查与真实 GUI 验收需分别记录，自动检查不证明真实压缩后端或模型调用可用。rc.1 用户继续使用 `v0.2.2`，0.2.1-rc.5 用户继续使用 `v0.2.1`。本地适配不代表已发布。
 
-The current release `0.2.3` targets DSH `0.2.2-rc.2` across the Host, Typert, Compaction, Session, and Web client APIs; DSH dependencies are pinned exactly in [`package.json`](package.json), with Cordis and Schemastery pinned to their verified minor lines. The settings page uses `ctx.configForms` and `settings.section`; this release passes the automated gate, and its preset buttons, staged state, and options entry were verified in the live GUI approval dialog after a restart. Users on DSH `0.2.2-rc.1` keep the published `v0.2.2`, and users on `0.2.1-rc.5` keep `v0.2.1`. Stable 0.2.1/0.2.2 and other Host versions are not verified and are not admitted automatically.
+Local adaptation `0.2.4` pins development dependencies to DSH `0.2.2-rc.3`; runtime engines and DSH peers admit `>=0.2.2-rc.2 <0.2.3-0`. Cordis and Schemastery stay on their verified minor lines. Admission is not verification: later 0.2.2 RCs and stable are admitted, while all 0.2.3 prereleases and later versions are excluded. Historical rc.2 verification remains recorded; rc.3 automated checks and live GUI acceptance must be reported separately, and automation does not establish production summarizer or model-call behavior. rc.1 users keep `v0.2.2`, and 0.2.1-rc.5 users keep `v0.2.1`. This local adaptation is not a published release.
 
 ## 发布与分发 | Release and distribution
 
@@ -140,7 +140,9 @@ pnpm package:check
 pnpm release:pack
 ```
 
-首次运行浏览器测试前需要安装 headless shell；完整 Chromium 不是必需：
+首次运行浏览器测试前需要安装 headless shell；完整 Chromium 不是必需。下载受阻时，可显式将 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 设为本机 Chrome 的绝对路径后运行 `pnpm test:browser`；该结果须注明使用系统浏览器，不能等同于固定版本回归。CI/Release 不设置此覆盖，仍使用 Playwright 固定浏览器。
+
+Install the headless shell before the first browser run. If downloads are blocked, explicitly set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to a local Chrome executable; report that result separately from the pinned-browser regression. CI/Release retain Playwright's pinned browser:
 
 ```sh
 pnpm exec playwright install --only-shell chromium
