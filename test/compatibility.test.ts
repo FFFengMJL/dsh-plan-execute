@@ -11,7 +11,7 @@ interface Manifest {
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const manifest = JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as Manifest
-const target = '0.2.2-rc.1'
+const target = '0.2.2-rc.2'
 
 describe('DSH compatibility metadata', () => {
   it('admits only the verified DSH release', () => {
