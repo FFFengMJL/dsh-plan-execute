@@ -10,6 +10,10 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 900, height: 600 },
     trace: 'retain-on-failure',
+    // Explicit local override only; CI/release keep Playwright's pinned browser.
+    launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
+      : undefined,
   },
   webServer: {
     command: 'node test/browser/server.mjs',

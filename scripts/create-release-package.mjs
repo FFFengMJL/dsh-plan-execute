@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { runPnpm } from './pnpm.mjs'
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,7 +23,7 @@ await mkdir(outDir, { recursive: true })
 for (const name of await readdir(outDir)) {
   if (name.endsWith('.tgz') || name.endsWith('.sha256')) await rm(join(outDir, name), { force: true })
 }
-execFileSync('pnpm', ['pack', '--pack-destination', outDir], {
+runPnpm(['pack', '--pack-destination', outDir], {
   cwd: root,
   stdio: 'inherit',
 })

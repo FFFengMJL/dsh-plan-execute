@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { runPnpm } from './pnpm.mjs'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -13,14 +14,14 @@ const packDir = join(scratch, 'artifacts')
 
 try {
   await mkdir(packDir)
-  execFileSync('pnpm', ['pack', '--pack-destination', packDir], {
+  runPnpm(['pack', '--pack-destination', packDir], {
     cwd: root,
     stdio: 'inherit',
   })
 
   const generated = (await readdir(packDir)).filter((name) => name.endsWith('.tgz'))
   assert.deepEqual(generated, [filename], `expected exactly ${filename}, got ${generated.join(', ')}`)
-  execFileSync('tar', ['-xzf', join(packDir, filename), '-C', scratch], { stdio: 'inherit' })
+  execFileSync('tar', ['-xzf', `./artifacts/${filename}`], { cwd: scratch, stdio: 'inherit' })
 
   const packageRoot = join(scratch, 'package')
   const packedManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
